@@ -1,32 +1,17 @@
-import { api, Channel } from '@/lib/api';
-import { goBack } from '@/lib/util';
+import { goBack, openPlayer } from '@/lib/util';
 import { useTheme, filterAdult, useSettings } from '@/theme';
 import { ChannelGrid } from '@/components/grid';
 import { SafeScreen } from '@/components/SafeScreen';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useLocalStore, useLocalStoreHydrated } from '@/lib/store';
+import { useMemo } from 'react';
 import { ActivityIndicator, Pressable, Text, View, StyleSheet } from 'react-native';
 
 export default function Favorites() {
   const showAdult = useSettings(s => s.showAdult);
   const { colors: c } = useTheme();
-  const [favorites, setFavorites] = useState<Channel[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      api
-        .favorites()
-        .then(data => {
-          setFavorites(filterAdult(data, showAdult));
-          setError('');
-        })
-        .catch(e => setError(e instanceof Error ? e.message : 'Failed to load favorites'))
-        .finally(() => setLoading(false));
-    }, [showAdult]),
-  );
+  const hydrated = useLocalStoreHydrated();
+  const stored = useLocalStore(s => s.favorites);
+  const favorites = useMemo(() => filterAdult(stored, showAdult), [stored, showAdult]);
 
   return (
     <SafeScreen>
@@ -35,28 +20,21 @@ export default function Favorites() {
           <Text style={[styles.backText, { color: c.text }]}>‹</Text>
         </Pressable>
         <Text style={[styles.title, { color: c.text }]}>Favorites</Text>
+        <Text style={[styles.count, { color: c.textMuted }]}>{favorites.length}</Text>
       </View>
 
-      {loading ? (
+      {!hydrated ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={c.accent} />
-        </View>
-      ) : error ? (
-        <View style={styles.center}>
-          <Text style={[styles.errorText, { color: c.textSecondary }]}>{error}</Text>
         </View>
       ) : favorites.length === 0 ? (
         <View style={styles.center}>
           <Text style={[styles.emptyIcon, { color: c.textMuted }]}>♡</Text>
           <Text style={[styles.emptyTitle, { color: c.text }]}>No favorites yet</Text>
-          <Text style={[styles.emptyDesc, { color: c.textMuted }]}>Long-press a channel card to add it.</Text>
+          <Text style={[styles.emptyDesc, { color: c.textMuted }]}>Tap ♡ in the player to save a channel.</Text>
         </View>
       ) : (
-        <ChannelGrid
-          channels={favorites}
-          cols={4}
-          onPress={ch => router.push({ pathname: '/player', params: { id: ch.id, name: ch.name } })}
-        />
+        <ChannelGrid channels={favorites} cols={4} onPress={openPlayer} />
       )}
     </SafeScreen>
   );
@@ -80,15 +58,15 @@ const styles = StyleSheet.create({
     fontSize: 16,
     flex: 1,
   },
+  count: {
+    fontSize: 12,
+  },
   center: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
     padding: 24,
-  },
-  errorText: {
-    textAlign: 'center',
   },
   emptyIcon: {
     fontSize: 40,

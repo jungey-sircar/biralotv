@@ -1,44 +1,30 @@
-import { api, Playlist, PlaylistRow } from '@/lib/api';
+import { type Channel } from '@/lib/api';
+import { fetchPlaylistUrl, parsePlaylistText } from '@/lib/iptv';
 import { goBack } from '@/lib/util';
 import { useTheme } from '@/theme';
-import { router, useFocusEffect } from 'expo-router';
+import { router, Stack, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Keyboard, Pressable, ScrollView, Text, TextInput, View, StyleSheet } from 'react-native';
 import { SafeScreen } from '@/components/SafeScreen';
+import { useLocalStore, useLocalStoreHydrated, type LocalPlaylist } from '@/lib/store';
 
 export default function Playlists() {
   const { colors: c } = useTheme();
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const hydrated = useLocalStoreHydrated();
+  const playlists = useLocalStore(s => s.playlists);
+  const addPlaylist = useLocalStore(s => s.addPlaylist);
+  const removePlaylist = useLocalStore(s => s.removePlaylist);
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
   const [mode, setMode] = useState<'url' | 'text'>('url');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    try {
-      const rows = (await api.playlists()) ?? [];
-      setPlaylists(rows.map((r: PlaylistRow) => ({
-        id: r.playlist?.id ?? r.id ?? 0,
-        name: r.playlist?.name ?? r.name ?? 'Unnamed',
-        url: r.playlist?.url ?? r.url,
-        created_at: r.playlist?.created_at ?? r.created_at ?? '',
-        channel_count: r.playlist?.channel_count ?? r.channel_count ?? r.channels ?? 0,
-      })));
-      setError('');
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'failed to load');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      load();
-    }, [load]),
+      setError('');
+    }, []),
   );
 
   async function add() {
@@ -47,28 +33,39 @@ export default function Playlists() {
       setError('Give the playlist a name');
       return;
     }
+    if (mode === 'url' && !url.trim()) {
+      setError('Enter a playlist URL');
+      return;
+    }
+    if (mode === 'text' && !text.trim()) {
+      setError('Paste the M3U content');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
+      let channels: Channel[];
       if (mode === 'url') {
-        if (!url.trim()) {
-          setError('Enter a playlist URL');
-          setBusy(false);
-          return;
-        }
-        await api.addPlaylistUrl(name.trim(), url.trim());
+        channels = await fetchPlaylistUrl(url.trim(), name.trim());
       } else {
-        if (!text.trim()) {
-          setError('Paste the M3U content');
-          setBusy(false);
-          return;
-        }
-        await api.addPlaylistText(name.trim(), text.trim());
+        channels = parsePlaylistText(text.trim(), name.trim());
       }
+      if (channels.length === 0) {
+        setError('No playable channels found in that playlist');
+        return;
+      }
+      const row: LocalPlaylist = {
+        id: `p-${Date.now()}`,
+        name: name.trim(),
+        url: mode === 'url' ? url.trim() : undefined,
+        text: mode === 'text' ? text.trim() : undefined,
+        channelCount: channels.length,
+        createdAt: new Date().toISOString(),
+      };
+      addPlaylist(row);
       setName('');
       setUrl('');
       setText('');
-      await load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'failed to add playlist');
     } finally {
@@ -76,23 +73,11 @@ export default function Playlists() {
     }
   }
 
-  async function remove(id: number) {
-    setBusy(true);
-    try {
-      await api.deletePlaylist(id);
-      await load();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'failed to delete');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <SafeScreen>
+      <Stack.Screen options={{ headerShown: false }} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.content}>
-          {/* header */}
           <View style={styles.header}>
             <Pressable onPress={() => goBack()} hitSlop={12}>
               <Text style={[styles.backText, { color: c.text }]}>‹</Text>
@@ -100,7 +85,6 @@ export default function Playlists() {
             <Text style={[styles.title, { color: c.text }]}>My Playlists</Text>
           </View>
 
-          {/* add new */}
           <View style={[styles.card, { backgroundColor: c.surface }]}>
             <Text style={[styles.cardTitle, { color: c.text }]}>Add your own playlist (M3U)</Text>
             <View style={styles.modeRow}>
@@ -142,7 +126,7 @@ export default function Playlists() {
                 />
               </Labeled>
             )}
-            {error && playlists.length > 0 ? <Text style={[styles.inlineError, { color: c.danger }]}>{error}</Text> : null}
+            {error ? <Text style={[styles.inlineError, { color: c.danger }]}>{error}</Text> : null}
             <Pressable
               onPress={add}
               disabled={busy}
@@ -153,8 +137,7 @@ export default function Playlists() {
             </Pressable>
           </View>
 
-          {/* list */}
-          {loading ? (
+          {!hydrated ? (
             <ActivityIndicator style={styles.listLoader} color={c.accent} />
           ) : playlists.length === 0 ? (
             <View style={styles.emptyState}>
@@ -167,26 +150,32 @@ export default function Playlists() {
                 <View key={p.id} style={[styles.playlistCard, { backgroundColor: c.surface }]}>
                   <Pressable
                     style={styles.playlistInfo}
-                    onPress={() =>
-                      router.push({ pathname: '/browse', params: { source: 'user:' + p.name.trim().toLowerCase().replace(/\s+/g, ' ') } })
-                    }
+                    onPress={() => router.push({ pathname: '/browse', params: { source: `user:${p.id}` } })}
                   >
                     <Text style={[styles.playlistName, { color: c.text }]}>{p.name}</Text>
-                    <Text style={[styles.playlistMeta, { color: c.textMuted }]}>{p.channel_count} channels · tap to open</Text>
+                    <Text style={[styles.playlistMeta, { color: c.textMuted }]}>
+                      {p.channelCount} channels · {p.url ? 'from URL' : 'pasted'}
+                    </Text>
                   </Pressable>
-                  <Pressable onPress={() => remove(p.id)} hitSlop={10}>
+                  <Pressable onPress={() => removePlaylist(p.id)} hitSlop={10} disabled={busy}>
                     <Text style={[styles.deleteBtnText, { color: c.danger }]}>Delete</Text>
                   </Pressable>
                 </View>
               ))}
             </View>
           )}
+
+          <View style={[styles.note, { backgroundColor: c.surface }]}>
+            <Text style={[styles.noteTitle, { color: c.text }]}>iptv-org is always on</Text>
+            <Text style={[styles.noteText, { color: c.textMuted }]}>
+              Categories, countries and languages load without any server. A backend address is optional.
+            </Text>
+          </View>
         </View>
       </ScrollView>
     </SafeScreen>
   );
 }
-
 
 function ModeChip({ label, active, color, onPress }: { label: string; active: boolean; color: ReturnType<typeof useTheme>['colors']; onPress: () => void }) {
   return (
@@ -329,5 +318,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  note: {
+    borderRadius: 16,
+    padding: 15,
+    gap: 4,
+  },
+  noteTitle: {
+    fontWeight: '700',
+    fontSize: 13.5,
+  },
+  noteText: {
+    fontSize: 12.5,
+    lineHeight: 18,
   },
 });

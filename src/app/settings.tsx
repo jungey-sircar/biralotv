@@ -1,6 +1,6 @@
 import { ACCENTS, Mode, useSettings, useTheme } from '@/theme';
 import { router, Stack } from 'expo-router';
-import { Pressable, ScrollView, Text, View, StyleSheet, Switch } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View, StyleSheet, Switch } from 'react-native';
 import { goBack } from '@/lib/util';
 import { SafeScreen } from '@/components/SafeScreen';
 
@@ -11,7 +11,7 @@ const MODES: { id: Mode; label: string }[] = [
 ];
 
 export default function Settings() {
-  const { mode, accent, showAdult, setMode, setAccent, setShowAdult } = useSettings();
+  const { mode, accent, showAdult, tmdbKey, setMode, setAccent, setShowAdult, setTmdbKey } = useSettings();
   const { colors: c, dark } = useTheme();
 
   return (
@@ -78,6 +78,31 @@ export default function Settings() {
               trackColor={{ false: dark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)', true: c.accent }}
               thumbColor="#fff"
             />
+          </View>
+        </Section>
+
+        <Section title="Catalogue" c={c}>
+          <View style={[styles.rowCard, { backgroundColor: c.surface }]}>
+            <View style={styles.rowText}>
+              <Text style={[styles.rowTitle, { color: c.text }]}>TMDB API key</Text>
+              <Text style={[styles.rowDesc, { color: c.textMuted }]}>
+                Unlocks the full film and anime catalogue with posters, seasons and where to watch. Public
+                domain and Creative Commons films play with or without it.
+              </Text>
+              <TextInput
+                value={tmdbKey}
+                onChangeText={setTmdbKey}
+                placeholder="v3 key or v4 read token"
+                placeholderTextColor={c.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                style={[styles.keyInput, { color: c.text }]}
+              />
+              <Text style={[styles.keyState, { color: tmdbKey ? c.textMuted : c.textSecondary }]}>
+                {tmdbKey ? 'Configured · catalogue tabs are visible' : 'Not set'}
+              </Text>
+            </View>
           </View>
         </Section>
 
@@ -195,5 +220,13 @@ const styles = StyleSheet.create({
   rowDesc: {
     fontSize: 12.5,
     marginTop: 3,
+  },
+  keyInput: {
+    marginTop: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+  },
+  keyState: {
+    fontSize: 11.5,
   },
 });

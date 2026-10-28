@@ -1,9 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
-import * as Device from 'expo-device';
+import {
+  fetchPlaylistUrl,
+  parsePlaylistText,
+  fetchCategoryChannels,
+  fetchCountryChannels,
+  fetchLanguageChannels,
+  IPTV_CATEGORIES,
+  POPULAR_COUNTRIES,
+  POPULAR_LANGUAGES,
+} from './iptv';
+import { useLocalStore } from './store';
+import { filterAdult, useSettings } from '@/theme';
 
 /**
  * biralotv shared data layer. The LAN backend is optional: when
@@ -11,19 +21,15 @@ import * as Device from 'expo-device';
  * playlists and local device playlists instead.
  */
 
-function defaultServer(): string {
-  if (Platform.OS === 'android' && !Device.isDevice) return 'http://10.0.2.2:8080';
-  return '';
-}
-
 interface Config {
   server: string;
+  setServer: (value: string) => void;
 }
 
 export const useConfig = create<Config>()(
   persist(
     (set) => ({
-      server: defaultServer(),
+      server: '',
       setServer: (value) => set({ server: value.trim().replace(/\/+$/, '') }),
     }),
     { name: 'biralotv.config.v3', storage: createJSONStorage(() => AsyncStorage) },
@@ -37,15 +43,10 @@ export const apiBase = () => useConfig.getState().server.trim();
  * hydrating so callers never observe a half-initialised address.
  */
 
-export const useHydrated = () => {
-  const [ready, setReady] = useState(useConfig.persist.hasHydrated());
-  useEffect(() => {
-    const unsub = useConfig.persist.onFinishHydration(() => setReady(true));
-    if (useConfig.persist.hasHydrated()) setReady(true);
-    return unsub;
-  }, []);
-  return ready;
-};
+const subscribeHydrated = (cb: () => void) => useConfig.persist.onFinishHydration(cb);
+
+export const useHydrated = () =>
+  useSyncExternalStore(subscribeHydrated, () => useConfig.persist.hasHydrated());
 
 export const useServerConfigured = () => {
   const hydrated = useHydrated();
@@ -54,19 +55,6 @@ export const useServerConfigured = () => {
 };
 
 // ----------------------------------------------------------
-
-import {
-  fetchPlaylistUrl,
-  parsePlaylistText,
-  fetchCategoryChannels,
-  fetchCountryChannels,
-  fetchLanguageChannels,
-  IPTV_CATEGORIES,
-  POPULAR_COUNTRIES,
-  POPULAR_LANGUAGES,
-} from './iptv';
-import { useLocalStore } from './store';
-import { filterAdult, useSettings } from '@/theme';
 
 export interface Channel {
   id: string;
@@ -178,8 +166,12 @@ const fetchJson = async <T>(url: string, opts: FetchJsonOpts = {}): Promise<T> =
 const userPlaylistChannels = async (key: string): Promise<Channel[]> => {
   const pl = useLocalStore.getState().playlists.find((p) => String(p.id) === key);
   if (!pl) throw new ApiError('Playlist not found');
-  const text = pl.text ?? (pl.url ? await fetchPlaylistUrl(pl.url, pl.name) : null);
-  return text ? parsePlaylistText(text, pl.name) : [];
+  const list = pl.text
+    ? parsePlaylistText(pl.text, pl.name)
+    : pl.url
+      ? await fetchPlaylistUrl(pl.url, pl.name)
+      : [];
+  return list;
 };
 
 export const channels = async (opts: ChannelOpts = {}): Promise<ChannelPage> => {
@@ -187,7 +179,9 @@ export const channels = async (opts: ChannelOpts = {}): Promise<ChannelPage> => 
   const rawQ = (opts.q ?? '').trim();
   let fetched: Channel[] | null = null;
   try {
-    if (source.startsWith('iptv-cat:')) {
+    if (opts.favorites) {
+      fetched = useLocalStore.getState().favorites;
+    } else if (source.startsWith('iptv-cat:')) {
       fetched = await fetchCategoryChannels(source.slice(9));
     } else if (source.startsWith('iptv-country:')) {
       fetched = await fetchCountryChannels(source.slice(13));
@@ -220,6 +214,7 @@ export const channels = async (opts: ChannelOpts = {}): Promise<ChannelPage> => 
     list = fetched;
   }
 
+  if (opts.group && opts.group !== 'All') list = list.filter((c) => c.group === opts.group);
   if (rawQ) list = list.filter((c) => c.name.toLowerCase().includes(rawQ.toLowerCase()));
   list = filterAdult(list, useSettings.getState().showAdult);
 

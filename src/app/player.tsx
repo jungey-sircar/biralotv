@@ -1,7 +1,8 @@
-import { api, useConfig, Channel } from '@/lib/api';
+import { api, apiBase, Channel } from '@/lib/api';
+import { useLocalStore } from '@/lib/store';
 import { goBack } from '@/lib/util';
 import { useTheme } from '@/theme';
-import { Redirect, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
@@ -18,54 +19,74 @@ function embedUrl(ch: Channel): string | null {
 }
 
 export default function Player() {
-  const params = useLocalSearchParams<{ id: string; name: string }>();
-  const server = useConfig(s => s.server);
+  const params = useLocalSearchParams<{
+    id: string;
+    name?: string;
+    stream?: string;
+    source?: string;
+    logo?: string;
+    number?: string;
+  }>();
+  const id = params.id ?? '';
+  const server = apiBase();
   const { colors: c } = useTheme();
-  const [channel, setChannel] = useState<Channel | null>(null);
-  const [fav, setFav] = useState(false);
+  const [remote, setRemote] = useState<Channel | null>(null);
   const [error, setError] = useState('');
 
+  const fromParams = useMemo<Channel | null>(() => {
+    if (!id) return null;
+    return {
+      id,
+      name: params.name || 'Live channel',
+      stream: params.stream || undefined,
+      source: params.source || '',
+      logo: params.logo || undefined,
+      number: params.number ? Number(params.number) : undefined,
+      updated: '',
+    };
+  }, [id, params.name, params.stream, params.source, params.logo, params.number]);
+
+  const channel = remote ?? fromParams;
+  const fav = useLocalStore(s => (channel ? s.favorites.some(f => f.id === channel.id) : false));
+
   useEffect(() => {
+    if (fromParams?.stream || !server || !id) return;
     let alive = true;
-    (async () => {
-      try {
-        const ch = await api.channel(params.id);
-        if (!alive) return;
-        setChannel(ch);
-        api.logRecent(ch.id).catch(() => {});
-      } catch (e: unknown) {
+    api
+      .channel(id)
+      .then(ch => {
+        if (alive) setRemote(ch);
+      })
+      .catch((e: unknown) => {
         if (alive) setError(e instanceof Error ? e.message : 'failed to load channel');
-      }
-    })();
+      });
     return () => {
       alive = false;
     };
-  }, [params.id]);
+  }, [fromParams, id, server]);
 
-  async function toggleFav() {
+  useEffect(() => {
+    if (channel) api.addRecent(channel);
+  }, [channel]);
+
+  function toggleFav() {
     if (!channel) return;
-    try {
-      if (fav) {
-        await api.favRemove(channel.id);
-        setFav(false);
-      } else {
-        await api.favAdd(channel.id);
-        setFav(true);
-      }
-    } catch {}
+    if (fav) api.removeFavorite(channel.id);
+    else api.addFavorite(channel);
   }
 
   const isEmbed = channel ? embedUrl(channel) !== null : false;
+  const stream = channel && !isEmbed ? channel.stream : undefined;
 
-  const player = useVideoPlayer(channel && !isEmbed && channel.stream ? channel.stream : null, p => {
+  const player = useVideoPlayer(stream ?? null, p => {
     void p;
   });
 
   useEffect(() => {
     let alive = true;
-    if (channel && !isEmbed && channel.stream) {
+    if (stream) {
       player
-        .replaceAsync(channel.stream)
+        .replaceAsync(stream)
         .then(() => {
           if (alive) player.play();
         })
@@ -74,11 +95,9 @@ export default function Player() {
     return () => {
       alive = false;
     };
-  }, [channel, isEmbed, player]);
+  }, [stream, player]);
 
   const webSrc = useMemo(() => (channel ? embedUrl(channel) : null), [channel]);
-
-  if (!server) return <Redirect href="/setup" />;
 
   return (
     <SafeScreen noBottom>
@@ -104,13 +123,12 @@ export default function Player() {
 
       {channel ? (
         <View style={styles.videoWrap}>
-          {/* top bar */}
           <View style={styles.topBar}>
             <Pressable onPress={goBack} hitSlop={12}>
               <Text style={styles.topBarBack}>‹</Text>
             </Pressable>
             <Text numberOfLines={1} style={styles.topBarTitle}>
-              {params.name}
+              {channel.name}
             </Text>
             <Pressable onPress={toggleFav} hitSlop={12}>
               <Text style={[styles.topBarFav, { color: fav ? c.accent : '#fff' }]}>{fav ? '♥' : '♡'}</Text>
@@ -142,30 +160,26 @@ export default function Player() {
                 </View>
               )}
             />
+          ) : stream ? (
+            <VideoView
+              style={styles.video}
+              player={player}
+              contentFit="contain"
+              nativeControls
+              allowsPictureInPicture
+            />
           ) : (
-            <>
-              {channel.stream ? (
-                <VideoView
-                  style={styles.video}
-                  player={player}
-                  contentFit="contain"
-                  nativeControls
-                  allowsPictureInPicture
-                />
-              ) : (
-                <View style={styles.center}>
-                  <Text style={[styles.errorMsg, { color: c.textSecondary }]}>
-                    No stream URL available for this channel.
-                  </Text>
-                  <Pressable
-                    onPress={goBack}
-                    style={({ pressed }) => [styles.errorBtn, { backgroundColor: pressed ? c.elevated : c.accent }]}
-                  >
-                    <Text style={styles.errorBtnText}>Back</Text>
-                  </Pressable>
-                </View>
-              )}
-            </>
+            <View style={styles.center}>
+              <Text style={[styles.errorMsg, { color: c.textSecondary }]}>
+                No stream URL available for this channel.
+              </Text>
+              <Pressable
+                onPress={goBack}
+                style={({ pressed }) => [styles.errorBtn, { backgroundColor: pressed ? c.elevated : c.accent }]}
+              >
+                <Text style={styles.errorBtnText}>Back</Text>
+              </Pressable>
+            </View>
           )}
         </View>
       ) : null}

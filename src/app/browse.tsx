@@ -1,20 +1,33 @@
-import { api, Channel, ChannelPage } from '@/lib/api';
+import { api, type Channel, type ChannelPage } from '@/lib/api';
 import { useTheme, filterAdult, useSettings } from '@/theme';
 import { ChannelGrid } from '@/components/grid';
 import { SafeScreen } from '@/components/SafeScreen';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View, useWindowDimensions, StyleSheet } from 'react-native';
-import { sourceLabel, goBack } from '@/lib/util';
+import { sourceLabel, goBack, openPlayer } from '@/lib/util';
+import { useLocalStore } from '@/lib/store';
+
+function deriveGroups(list: Channel[]): string[] {
+  const set = new Set<string>();
+  for (const ch of list) if (ch.group) set.add(ch.group);
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
 
 export default function Browse() {
   const params = useLocalSearchParams<{ source?: string; group?: string; favorites?: string }>();
   const rawSource = params.source ?? '';
-  const source = rawSource || 'mapple-premium';
   const initialGroup = params.group ?? '';
   const favoritesOnly = params.favorites === '1';
   const showAdult = useSettings(s => s.showAdult);
+  const playlists = useLocalStore(s => s.playlists);
   const { colors: c } = useTheme();
+
+  const fallback = useMemo(() => {
+    const first = playlists.find(p => p.text || p.url);
+    return first ? `user:${first.id}` : 'iptv-cat:general';
+  }, [playlists]);
+  const source = rawSource || fallback;
 
   const [group, setGroup] = useState(initialGroup);
   const [searchInput, setSearchInput] = useState('');
@@ -46,10 +59,19 @@ export default function Browse() {
 
   const fetchPage = useCallback(
     async (page: number, replace: boolean) => {
-      const data = await api.channels({ source, group, q, favorites: favoritesOnly, page, per_page: Math.max(60, cols * 10) });
+      const data = await api.channels({
+        source,
+        group,
+        q,
+        favorites: favoritesOnly,
+        page,
+        perPage: Math.max(60, cols * 10),
+      });
       const filtered = { ...data, channels: filterAdult(data.channels, showAdult) };
-      if (replace) setChannels(filtered.channels);
-      else setChannels(prev => merge(prev, filtered.channels));
+      if (replace) {
+        setChannels(filtered.channels);
+        setGroups(favoritesOnly ? [] : deriveGroups(filtered.channels));
+      } else setChannels(prev => merge(prev, filtered.channels));
       setPageData(filtered);
     },
     [source, group, q, favoritesOnly, cols, showAdult],
@@ -59,22 +81,15 @@ export default function Browse() {
     setError('');
     setLoading(true);
     try {
-      if (!favoritesOnly) {
-        try {
-          const g = await api.groups(source);
-          setGroups(filterAdult(g.map(x => ({ name: x })), showAdult).map(x => x.name));
-        } catch {}
-      }
       await fetchPage(1, true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'failed to load');
     } finally {
       setLoading(false);
     }
-  }, [favoritesOnly, source, fetchPage, showAdult]);
+  }, [fetchPage]);
 
   useEffect(() => {
-    // initial + refetch on filter change: fire-and-forget async event
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
@@ -89,13 +104,8 @@ export default function Browse() {
     setLoadingMore(false);
   }
 
-  function open(ch: Channel) {
-    router.push({ pathname: '/player', params: { id: ch.id, name: ch.name } });
-  }
-
   return (
     <SafeScreen>
-      {/* header */}
       <View style={styles.headerArea}>
         <View style={styles.headerRow}>
           <Pressable onPress={() => goBack()} hitSlop={12}>
@@ -152,9 +162,18 @@ export default function Browse() {
               >
                 <Text style={styles.retryText}>Retry</Text>
               </Pressable>
+              <Pressable onPress={() => router.push('/playlists')} hitSlop={8}>
+                <Text style={[styles.linkText, { color: c.textMuted }]}>Add a playlist</Text>
+              </Pressable>
+            </View>
+          ) : channels.length === 0 ? (
+            <View style={styles.errorCenter}>
+              <Text style={[styles.errorText, { color: c.textSecondary }]}>
+                {q ? `No channels match “${q}”.` : 'No channels here yet.'}
+              </Text>
             </View>
           ) : (
-            <ChannelGrid channels={channels} onPress={open} cols={cols} onEndReached={onEndReached} />
+            <ChannelGrid channels={channels} onPress={openPlayer} cols={cols} onEndReached={onEndReached} />
           )}
           {loadingMore ? (
             <View style={styles.loadingMore}>
@@ -254,6 +273,10 @@ const styles = StyleSheet.create({
   retryText: {
     color: '#fff',
     fontWeight: '700',
+  },
+  linkText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   loadingMore: {
     padding: 14,

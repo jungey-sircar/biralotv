@@ -9,9 +9,11 @@ type SettingsState = {
   mode: Mode;
   accent: string;
   showAdult: boolean;
+  tmdbKey: string;
   setMode: (m: Mode) => void;
   setAccent: (a: string) => void;
   setShowAdult: (v: boolean) => void;
+  setTmdbKey: (v: string) => void;
 };
 
 export const useSettings = create<SettingsState>()(
@@ -20,9 +22,11 @@ export const useSettings = create<SettingsState>()(
       mode: 'dark',
       accent: '#ff4533',
       showAdult: false,
+      tmdbKey: '',
       setMode: m => set({ mode: m }),
       setAccent: a => set({ accent: a }),
       setShowAdult: v => set({ showAdult: v }),
+      setTmdbKey: v => set({ tmdbKey: v.trim() }),
     }),
     { name: 'biralotv.settings', storage: createJSONStorage(() => AsyncStorage) },
   ),
