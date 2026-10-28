@@ -2,7 +2,7 @@ import { api, apiBase, Channel } from '@/lib/api';
 import { useLocalStore } from '@/lib/store';
 import { goBack } from '@/lib/util';
 import { useTheme } from '@/theme';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
@@ -66,6 +66,10 @@ export default function Player() {
   }, [fromParams, id, server]);
 
   useEffect(() => {
+    if (!id) router.replace('/');
+  }, [id]);
+
+  useEffect(() => {
     if (channel) api.addRecent(channel);
   }, [channel]);
 
@@ -98,17 +102,26 @@ export default function Player() {
   }, [stream, player]);
 
   const webSrc = useMemo(() => (channel ? embedUrl(channel) : null), [channel]);
+  const resolving = !!server && !!id && !remote && !fromParams?.stream && !error;
 
   return (
     <SafeScreen noBottom>
-      {!channel && !error ? (
+      {!channel ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={c.accent} />
-          <Text style={[styles.loadingText, { color: c.textSecondary }]}>Loading stream…</Text>
+          <Text style={[styles.errorTitle, { color: c.text }]}>Nothing to play</Text>
+          <Text style={[styles.errorMsg, { color: c.textSecondary }]}>
+            {error || 'This screen was opened without a channel. Go back and pick one from the list.'}
+          </Text>
+          <Pressable
+            onPress={goBack}
+            style={({ pressed }) => [styles.errorBtn, { backgroundColor: pressed ? c.elevated : c.accent }]}
+          >
+            <Text style={styles.errorBtnText}>Back to channels</Text>
+          </Pressable>
         </View>
       ) : null}
 
-      {error ? (
+      {channel && error ? (
         <View style={styles.center}>
           <Text style={[styles.errorTitle, { color: c.text }]}>Can&apos;t play this channel</Text>
           <Text style={[styles.errorMsg, { color: c.textSecondary }]}>{error}</Text>
@@ -121,7 +134,7 @@ export default function Player() {
         </View>
       ) : null}
 
-      {channel ? (
+      {channel && !error ? (
         <View style={styles.videoWrap}>
           <View style={styles.topBar}>
             <Pressable onPress={goBack} hitSlop={12}>
@@ -168,6 +181,11 @@ export default function Player() {
               nativeControls
               allowsPictureInPicture
             />
+          ) : resolving ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color={c.accent} />
+              <Text style={[styles.loadingText, { color: c.textSecondary }]}>Loading stream…</Text>
+            </View>
           ) : (
             <View style={styles.center}>
               <Text style={[styles.errorMsg, { color: c.textSecondary }]}>

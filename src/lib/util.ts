@@ -1,6 +1,8 @@
 import { router } from 'expo-router';
 import { useLocalStore } from './store';
 import { resolveArchiveStream, type VodItem } from './archive';
+import { resolveMsStream } from './media-server';
+import { resolvePlutoStream } from './pluto';
 
 export function favKey(id: string) {
   return `fav:${id}`;
@@ -61,6 +63,43 @@ export async function openVodItem(item: VodItem): Promise<string | null> {
       params: { kind: item.tmdbKind ?? 'movie', id: String(item.tmdbId ?? ''), title: item.title },
     });
     return null;
+  }
+  if (item.source === 'server') {
+    if (item.msType === 'Series') {
+      router.push({
+        pathname: '/ms-series',
+        params: { id: item.identifier ?? '', title: item.title },
+      });
+      return null;
+    }
+    try {
+      const stream = await resolveMsStream(item);
+      openPlayer({
+        id: item.id,
+        name: item.title,
+        stream,
+        source: 'media-server',
+        logo: item.poster ?? '',
+      });
+      return null;
+    } catch (e: unknown) {
+      return e instanceof Error ? e.message : 'could not start playback';
+    }
+  }
+  if (item.source === 'pluto') {
+    try {
+      const stream = await resolvePlutoStream(item);
+      openPlayer({
+        id: item.id,
+        name: item.title,
+        stream,
+        source: 'pluto',
+        logo: item.poster ?? '',
+      });
+      return null;
+    } catch (e: unknown) {
+      return e instanceof Error ? e.message : 'could not start playback';
+    }
   }
   if (!item.identifier) return 'That title is missing its Archive id.';
   try {

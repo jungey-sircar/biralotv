@@ -117,6 +117,9 @@ export default function Browse() {
           {pageData ? (
             <Text style={[styles.channelCount, { color: c.textMuted }]}>{pageData.total}</Text>
           ) : null}
+          <Pressable onPress={() => router.push('/channel-search')} hitSlop={10}>
+            <Text style={[styles.searchAll, { color: c.accent }]}>⌕</Text>
+          </Pressable>
         </View>
         <View style={[styles.searchBox, { backgroundColor: c.surface }]}>
           <TextInput
@@ -227,6 +230,10 @@ const styles = StyleSheet.create({
   },
   channelCount: {
     fontSize: 12,
+  },
+  searchAll: {
+    fontSize: 20,
+    marginTop: -2,
   },
   searchBox: {
     borderRadius: 14,

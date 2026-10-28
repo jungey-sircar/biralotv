@@ -3,18 +3,30 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, Vi
 import { router, useLocalSearchParams } from 'expo-router';
 import { SafeScreen } from '@/components/SafeScreen';
 import { VodCard } from '@/components/vod-card';
-import {
-  ARCHIVE_SCOPES,
-  resolveArchiveStream,
-  searchArchive,
-  type ArchiveScope,
-  type VodItem,
-} from '@/lib/archive';
+import { ARCHIVE_SCOPES, searchArchive, type ArchiveScope, type VodItem } from '@/lib/archive';
+import { msBrowse, useMsConfigured } from '@/lib/media-server';
+import { plutoBrowse } from '@/lib/pluto';
 import { tmdbDiscover, tmdbSearch } from '@/lib/tmdb';
 import { useSettings, useTheme } from '@/theme';
-import { goBack, openPlayer } from '@/lib/util';
+import { goBack, openVodItem } from '@/lib/util';
 
-type Tab = { key: string; label: string; scope?: ArchiveScope; tmdbKind?: 'movie' | 'tv' };
+type Tab = {
+  key: string;
+  label: string;
+  scope?: ArchiveScope;
+  tmdbKind?: 'movie' | 'tv';
+  server?: boolean;
+  pluto?: 'vod' | 'live';
+};
+
+const SERVER_TAB: Tab = { key: 'server', label: 'My Library', server: true };
+
+const PLUTO_TABS: Tab[] = [
+  { key: 'pluto-vod', label: 'Pluto Films', pluto: 'vod' },
+  { key: 'pluto-live', label: 'Pluto Live', pluto: 'live' },
+];
+
+const ARCHIVE_TABS: Tab[] = ARCHIVE_SCOPES.map(s => ({ key: s.key, label: s.label, scope: s }));
 
 const TMDB_TABS: Tab[] = [
   { key: 'tmdb-films', label: 'Films+', tmdbKind: 'movie' },
@@ -25,10 +37,11 @@ export default function OnDemand() {
   const params = useLocalSearchParams<{ scope?: string; query?: string }>();
   const { colors: c } = useTheme();
   const tmdbKey = useSettings(s => s.tmdbKey);
+  const hasServer = useMsConfigured();
 
   const tabs = useMemo<Tab[]>(
-    () => [...ARCHIVE_SCOPES, ...(tmdbKey ? TMDB_TABS : [])],
-    [tmdbKey],
+    () => [...(hasServer ? [SERVER_TAB] : []), ...ARCHIVE_TABS, ...PLUTO_TABS, ...TMDB_TABS],
+    [hasServer],
   );
 
   const [scopeKey, setScopeKey] = useState(() => {
@@ -47,6 +60,7 @@ export default function OnDemand() {
   const PAGE_SIZE = 21;
 
   const tab = useMemo(() => tabs.find(t => t.key === scopeKey) ?? tabs[0], [tabs, scopeKey]);
+  const needsKey = !!tab.tmdbKind && !tmdbKey.trim();
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -57,6 +71,8 @@ export default function OnDemand() {
   }, [searchInput]);
 
   const fetchPage = useCallback(async (target: Tab, query: string): Promise<VodItem[]> => {
+    if (target.server) return msBrowse({ query, page: page.current });
+    if (target.pluto) return plutoBrowse({ kind: target.pluto, query, page: page.current, pageSize: PAGE_SIZE });
     if (target.tmdbKind && query.trim()) return tmdbSearch(query, page.current);
     if (target.tmdbKind) {
       return tmdbDiscover({
@@ -90,36 +106,17 @@ export default function OnDemand() {
   );
 
   useEffect(() => {
+    if (needsKey) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load(true);
-  }, [load]);
+  }, [load, needsKey]);
 
   async function openItem(item: VodItem) {
-    if (item.source === 'tmdb') {
-      router.push({
-        pathname: '/vod-detail',
-        params: { kind: item.tmdbKind ?? 'movie', id: String(item.tmdbId ?? ''), title: item.title },
-      });
-      return;
-    }
-    if (!item.identifier) return;
     setBusyId(item.id);
     setError('');
     try {
-      const stream = await resolveArchiveStream(item.identifier);
-      if (!stream) {
-        setError(`No playable file found for “${item.title}”.`);
-        return;
-      }
-      openPlayer({
-        id: item.id,
-        name: item.title,
-        stream,
-        source: `archive:${item.identifier}`,
-        logo: item.poster ?? '',
-      });
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'could not start playback');
+      const message = await openVodItem(item);
+      if (message) setError(message);
     } finally {
       setBusyId('');
     }
@@ -143,7 +140,7 @@ export default function OnDemand() {
           <TextInput
             value={searchInput}
             onChangeText={setSearchInput}
-            placeholder="Search films…"
+            placeholder={tab.server ? 'Search your library…' : tab.tmdbKind ? 'Search any title…' : 'Search free films…'}
             placeholderTextColor={c.textMuted}
             style={[styles.searchInput, { color: c.text }]}
             autoCorrect={false}
@@ -167,12 +164,27 @@ export default function OnDemand() {
           )}
         />
         <Text style={[styles.note, { color: c.textMuted }]}>
-          Free titles are public-domain and Creative Commons works. Add a TMDB key in Settings for the
-          full catalogue, then watch on your services.
+          {hasServer
+            ? 'My Library plays straight from your own server. The other shelves are public-domain and Creative Commons films.'
+            : 'Free titles are public-domain and Creative Commons works. Add a TMDB key or your own media server in Settings for the full catalogue.'}
         </Text>
       </View>
 
-      {loading ? (
+      {needsKey ? (
+        <View style={styles.center}>
+          <Text style={[styles.emptyTitle, { color: c.text }]}>Search the whole catalogue</Text>
+          <Text style={[styles.emptyDesc, { color: c.textMuted }]}>
+            Films+ and Anime+ cover every title, including this year&apos;s releases. Add your own free
+            TMDB API key and biralotv will show where each one is legally streaming.
+          </Text>
+          <Pressable
+            onPress={() => router.push('/settings')}
+            style={({ pressed }) => [styles.cta, { backgroundColor: pressed ? c.elevated : c.accent }]}
+          >
+            <Text style={styles.ctaText}>Add TMDB key</Text>
+          </Pressable>
+        </View>
+      ) : loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={c.accent} />
         </View>
@@ -317,6 +329,17 @@ const styles = StyleSheet.create({
   },
   emptyDesc: {
     textAlign: 'center',
+  },
+  cta: {
+    marginTop: 6,
+    borderRadius: 999,
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+  },
+  ctaText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 14,
   },
   errorBar: {
     flexDirection: 'row',

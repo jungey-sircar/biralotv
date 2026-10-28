@@ -9,10 +9,14 @@ export type VodItem = {
   year?: number;
   poster?: string;
   overview?: string;
-  source: 'archive' | 'tmdb';
+  source: 'archive' | 'tmdb' | 'server' | 'pluto';
   identifier?: string;
   tmdbId?: number;
   tmdbKind?: 'movie' | 'tv';
+  msType?: 'Movie' | 'Series' | 'Episode';
+  msPart?: string;
+  plutoKind?: 'vod' | 'series' | 'live';
+  plutoUrl?: string;
   rating?: number;
   license?: string;
 };
@@ -23,16 +27,22 @@ export type ArchiveScope = {
   query: string;
 };
 
+const FF = 'collection:(feature_films)';
+
 export const ARCHIVE_SCOPES: ArchiveScope[] = [
-  { key: 'films', label: 'Films', query: 'collection:(feature_films)' },
-  { key: 'noir', label: 'Noir', query: 'collection:(feature_films) AND (subject:(noir) OR subject:("film-noir"))' },
-  { key: 'scifi', label: 'Sci-Fi', query: 'collection:(feature_films) AND (subject:("science fiction") OR title:(sci-fi))' },
-  { key: 'horror', label: 'Horror', query: 'collection:(feature_films) AND subject:(horror)' },
-  { key: 'comedy', label: 'Comedy', query: 'collection:(feature_films) AND subject:(comedy)' },
-  { key: 'animation', label: 'Animation', query: 'collection:(feature_films) AND (subject:(animation) OR title:(cartoon))' },
-  { key: 'docs', label: 'Documentary', query: 'collection:(feature_films) AND subject:(documentary)' },
-  { key: 'cc', label: 'Creative Commons', query: 'licenseurl:(*creativecommons*)' },
-  { key: 'archives', label: 'Archives', query: 'collection:(prelinger)' },
+  { key: 'films', label: 'Films', query: FF },
+  { key: 'noir', label: 'Noir', query: `${FF} AND subject:("film noir")` },
+  { key: 'scifi', label: 'Sci-Fi', query: `${FF} AND (subject:("science fiction") OR title:(sci-fi))` },
+  { key: 'horror', label: 'Horror', query: `${FF} AND subject:(horror)` },
+  { key: 'comedy', label: 'Comedy', query: `${FF} AND subject:(comedy)` },
+  { key: 'western', label: 'Western', query: `${FF} AND subject:(western)` },
+  { key: 'crime', label: 'Crime', query: `${FF} AND subject:(crime)` },
+  { key: 'adventure', label: 'Adventure', query: `${FF} AND subject:(adventure)` },
+  { key: 'fantasy', label: 'Fantasy', query: `${FF} AND subject:(fantasy)` },
+  { key: 'animation', label: 'Animation', query: `${FF} AND (subject:(animation) OR title:(cartoon))` },
+  { key: 'docs', label: 'Documentary', query: `${FF} AND subject:(documentary)` },
+  { key: 'silent', label: 'Silent', query: `${FF} AND (subject:(silent) OR title:(silent))` },
+  { key: 'shorts', label: 'Shorts', query: 'collection:(short_films)' },
 ];
 
 type RawValue = string | string[] | number | number[] | undefined;
@@ -83,8 +93,9 @@ export async function searchArchive(opts: {
   page?: number;
   rows?: number;
 }): Promise<VodItem[]> {
-  const base = opts.scope ? `${PLAYABLE} AND ${opts.scope.query}` : PLAYABLE;
+  const shelf = opts.scope?.query ?? FF;
   const freeText = solrSafe(opts.query ?? '');
+  const base = `${PLAYABLE} AND ${freeText ? FF : shelf}`;
 
   const request = async (q: string, sorted: boolean): Promise<SearchDoc[] | null> => {
     const params = new URLSearchParams({

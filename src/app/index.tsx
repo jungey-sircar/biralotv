@@ -7,6 +7,7 @@ import { ScreenError } from '@/components/screen-error';
 import { VodRow } from '@/components/vod-row';
 import type { Channel } from '@/lib/api';
 import { searchArchive, type VodItem } from '@/lib/archive';
+import { msBrowse, useMsConfigured } from '@/lib/media-server';
 import { openVodItem } from '@/lib/util';
 import { useLocalStore } from '@/lib/store';
 import {
@@ -22,6 +23,7 @@ const COUNTRY_CODES = ['us', 'gb', 'de'];
 const HEADER_LINKS = [
   { href: '/on-demand', label: 'On Demand' },
   { href: '/browse', label: 'Live TV' },
+  { href: '/channel-search', label: 'Search TV' },
   { href: '/playlists', label: 'Playlists' },
   { href: '/settings', label: 'Settings' },
 ] as const;
@@ -46,8 +48,10 @@ async function loadSection(
 function Home() {
   const { colors } = useTheme();
   const showAdult = useSettings(s => s.showAdult);
+  const hasServer = useMsConfigured();
   const [sections, setSections] = useState<Section[]>([]);
   const [vod, setVod] = useState<VodItem[]>([]);
+  const [library, setLibrary] = useState<VodItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -58,7 +62,18 @@ function Home() {
         const store = useLocalStore.getState();
         const recents = store.recents.slice(0, 20);
         const favorites = store.favorites.slice(0, 20);
-        const filmsPromise = searchArchive({ rows: 10 }).catch(() => [] as VodItem[]);
+        const filmsPromise = searchArchive({ rows: 10 })
+          .catch(() => [] as VodItem[])
+          .then(items => {
+            setVod(items);
+            return items;
+          });
+        const libraryPromise = (hasServer ? msBrowse({ pageSize: 10, latest: true }) : Promise.resolve([] as VodItem[]))
+          .catch(() => [] as VodItem[])
+          .then(items => {
+            setLibrary(items);
+            return items;
+          });
         const tasks: Promise<Section | null>[] = [];
         if (recents.length > 0) {
           tasks.push(loadSection('Continue watching', () => Promise.resolve(recents), showAdult));
@@ -80,7 +95,7 @@ function Home() {
         }
         const results = await Promise.all(tasks);
         setSections(results.filter((s): s is Section => s !== null));
-        setVod(await filmsPromise);
+        await Promise.all([filmsPromise, libraryPromise]);
         setError('');
         setLoading(false);
       } catch (e) {
@@ -90,7 +105,7 @@ function Home() {
       }
     };
     void run();
-  }, [showAdult]);
+  }, [showAdult, hasServer]);
 
   useFocusEffect(useCallback(() => {
     load();
@@ -124,13 +139,13 @@ function Home() {
   );
 
   let body;
-  if (loading) {
+  if (loading && sections.length === 0 && vod.length === 0 && library.length === 0) {
     body = (
       <View style={styles.empty}>
         <Text style={[styles.emptyText, { color: colors.textMuted }]}>Loading channels…</Text>
       </View>
     );
-  } else if (sections.length === 0 && vod.length === 0) {
+  } else if (sections.length === 0 && vod.length === 0 && library.length === 0) {
     body = (
       <View style={styles.empty}>
         <Text style={[styles.emptyTitle, { color: colors.text }]}>No channels yet</Text>
@@ -151,6 +166,14 @@ function Home() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
+        <VodRow
+          title="From your library"
+          items={library}
+          onSeeAll={() => router.push({ pathname: '/on-demand', params: { scope: 'server' } })}
+          onPress={item => {
+            void openVodItem(item).then(message => setNotice(message ?? ''));
+          }}
+        />
         <VodRow
           title="Free to watch"
           items={vod}

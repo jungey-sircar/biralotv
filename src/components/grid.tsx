@@ -1,6 +1,6 @@
 import { Channel } from '@/lib/api';
 import { ChannelCard } from './ChannelCard';
-import { FlatList, View, StyleSheet } from 'react-native';
+import { FlatList, View, StyleSheet, useWindowDimensions } from 'react-native';
 
 type Props = {
   channels: Channel[];
@@ -11,6 +11,8 @@ type Props = {
 };
 
 export function ChannelGrid({ channels, onPress, cols, gap = 10, onEndReached }: Props) {
+  const { width: winW } = useWindowDimensions();
+  const cardWidth = Math.max(56, (winW - 36) / cols - gap);
   return (
     <FlatList
       data={channels}
@@ -26,8 +28,8 @@ export function ChannelGrid({ channels, onPress, cols, gap = 10, onEndReached }:
       onEndReachedThreshold={0.5}
       contentContainerStyle={styles.content}
       renderItem={({ item }) => (
-        <View style={{ flex: 1 / cols, maxWidth: `${100 / cols}%`, padding: gap / 2 }}>
-          <ChannelCard channel={item} onPress={onPress} />
+        <View style={{ padding: gap / 2 }}>
+          <ChannelCard channel={item} width={cardWidth} onPress={onPress} />
         </View>
       )}
     />

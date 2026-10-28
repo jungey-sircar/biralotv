@@ -1,7 +1,9 @@
 import { ACCENTS, Mode, useSettings, useTheme } from '@/theme';
+import { useState } from 'react';
 import { router, Stack } from 'expo-router';
-import { Pressable, ScrollView, Text, TextInput, View, StyleSheet, Switch } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View, StyleSheet, Switch } from 'react-native';
 import { goBack } from '@/lib/util';
+import { MS_KINDS, msTest, useMediaServer } from '@/lib/media-server';
 import { SafeScreen } from '@/components/SafeScreen';
 
 const MODES: { id: Mode; label: string }[] = [
@@ -106,6 +108,8 @@ export default function Settings() {
           </View>
         </Section>
 
+        <MediaServerSection />
+
         <Section title="Connection" c={c}>
           <Pressable onPress={() => router.push('/server')} style={[styles.rowCard, { backgroundColor: c.surface }]}>
             <View style={styles.rowText}>
@@ -128,6 +132,115 @@ export default function Settings() {
         </Section>
       </ScrollView>
     </SafeScreen>
+  );
+}
+
+function MediaServerSection() {
+  const { colors: c } = useTheme();
+  const saved = useMediaServer();
+  const [kind, setKind] = useState(saved.kind);
+  const [url, setUrl] = useState(saved.url);
+  const [key, setKey] = useState(saved.key);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const [ok, setOk] = useState(false);
+
+  const dirty = kind !== saved.kind || url.trim() !== saved.url || key.trim() !== saved.key;
+
+  async function saveAndTest() {
+    setBusy(true);
+    setStatus('');
+    saved.setKind(kind);
+    saved.setUrl(url);
+    saved.setKey(key);
+    try {
+      const info = await msTest();
+      setOk(true);
+      setStatus(info);
+    } catch (e: unknown) {
+      setOk(false);
+      setStatus(e instanceof Error ? e.message : 'could not reach that server');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Section title="Media server" c={c}>
+      <View style={[styles.rowCard, { backgroundColor: c.surface }]}>
+        <View style={styles.rowText}>
+          <Text style={[styles.rowTitle, { color: c.text }]}>Your own library</Text>
+          <Text style={[styles.rowDesc, { color: c.textMuted }]}>
+            Point biralotv at a Jellyfin, Emby or Plex server on this network. Every film and series on
+            it becomes searchable and playable inside the app.
+          </Text>
+
+          <View style={[styles.themeRow, { backgroundColor: c.elevated, marginTop: 12 }]}>
+            {MS_KINDS.map(k => (
+              <Pressable
+                key={k.id}
+                onPress={() => setKind(k.id)}
+                style={[styles.themeBtn, { backgroundColor: kind === k.id ? c.accent : 'transparent' }]}
+              >
+                <Text style={[styles.themeBtnText, { color: kind === k.id ? '#fff' : c.textSecondary }]}>
+                  {k.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text style={[styles.keyState, { color: c.textMuted, marginTop: 8 }]}>
+            {MS_KINDS.find(k => k.id === kind)?.hint}
+          </Text>
+
+          <TextInput
+            value={url}
+            onChangeText={setUrl}
+            placeholder="http://192.168.1.50:8096"
+            placeholderTextColor={c.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            style={[styles.field, { backgroundColor: c.elevated, color: c.text }]}
+          />
+          <TextInput
+            value={key}
+            onChangeText={setKey}
+            placeholder={kind === 'plex' ? 'X-Plex-Token' : 'API key'}
+            placeholderTextColor={c.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            style={[styles.field, { backgroundColor: c.elevated, color: c.text }]}
+          />
+
+          <View style={styles.serverActions}>
+            <Pressable
+              onPress={() => void saveAndTest()}
+              disabled={busy}
+              style={({ pressed }) => [
+                styles.saveBtn,
+                { backgroundColor: pressed || busy ? c.elevated : c.accent },
+              ]}
+            >
+              {busy ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.saveText}>{dirty ? 'Save & test' : 'Test connection'}</Text>
+              )}
+            </Pressable>
+            {status ? (
+              <Text style={[styles.statusText, { color: ok ? c.textSecondary : c.danger }]} numberOfLines={3}>
+                {status}
+              </Text>
+            ) : (
+              <Text style={[styles.statusText, { color: c.textMuted }]}>
+                {saved.url ? `Saved: ${saved.kind} at ${saved.url}` : 'Not configured'}
+              </Text>
+            )}
+          </View>
+        </View>
+      </View>
+    </Section>
   );
 }
 
@@ -228,5 +341,34 @@ const styles = StyleSheet.create({
   },
   keyState: {
     fontSize: 11.5,
+  },
+  field: {
+    marginTop: 10,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13.5,
+  },
+  serverActions: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  saveBtn: {
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    minWidth: 108,
+    alignItems: 'center',
+  },
+  saveText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  statusText: {
+    flex: 1,
+    fontSize: 12,
   },
 });

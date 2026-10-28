@@ -1,4 +1,4 @@
-import { Channel } from './api';
+import type { Channel } from './api';
 
 // ---- M3U Parser (runs on-device) ----
 
@@ -63,13 +63,7 @@ export function parseM3U(text: string): M3UEntry[] {
         cur = null;
       }
       const rest = line.slice('#EXTINF:'.length);
-      const comma = rest.indexOf(',');
-      let title = '';
-      let attrPart = rest;
-      if (comma >= 0) {
-        attrPart = rest.slice(0, comma);
-        title = rest.slice(comma + 1).trim();
-      }
+      const { attrPart, title } = splitExtinf(rest);
       const attrs = parseAttrs(attrPart);
       cur = {
         name: title || attrs['tvg-name'] || '',
@@ -88,6 +82,27 @@ export function parseM3U(text: string): M3UEntry[] {
   }
   if (cur && cur.url) out.push(cur);
   return out;
+}
+
+/**
+ * The display title starts after the first comma that is not inside a quoted
+ * attribute value; iptv-org user-agent strings contain commas.
+ */
+function splitExtinf(rest: string): { attrPart: string; title: string } {
+  let quote: string | null = null;
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i];
+    if (quote) {
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === ',') return { attrPart: rest.slice(0, i), title: rest.slice(i + 1).trim() };
+  }
+  return { attrPart: rest, title: '' };
 }
 
 // ---- Stable ID generation ----
@@ -155,6 +170,42 @@ async function fetchIPTV(key: string, url: string, source: string): Promise<Chan
 export function fetchCategoryChannels(category: string): Promise<Channel[]> {
   const key = `iptv-cat:${category}`;
   return fetchIPTV(key, `${IPTV_BASE}/categories/${category}.m3u`, key);
+}
+
+const ALL_KEY = 'iptv-org:all';
+const ALL_TTL = 6 * 60 * 60 * 1000;
+
+let allInflight: Promise<Channel[]> | null = null;
+
+export function fetchAllChannels(): Promise<Channel[]> {
+  const cached = memCache.get(ALL_KEY);
+  if (cached && Date.now() - cached.ts < ALL_TTL) return Promise.resolve(cached.channels);
+  if (allInflight) return allInflight;
+  allInflight = fetchText(`${IPTV_BASE}/index.m3u`, 120000)
+    .then(text => {
+      const channels = m3uToChannels(parseM3U(text), ALL_KEY);
+      memCache.set(ALL_KEY, { channels, ts: Date.now() });
+      return channels;
+    })
+    .finally(() => {
+      allInflight = null;
+    });
+  return allInflight;
+}
+
+export async function searchAllChannels(q: string): Promise<Channel[]> {
+  const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return [];
+  const all = await fetchAllChannels();
+  const hits: Channel[] = [];
+  for (const ch of all) {
+    const hay = `${ch.name} ${ch.group ?? ''}`.toLowerCase();
+    if (terms.every(t => hay.includes(t))) {
+      hits.push(ch);
+      if (hits.length >= 300) break;
+    }
+  }
+  return hits;
 }
 
 export function fetchCountryChannels(code: string): Promise<Channel[]> {
