@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Animated, Easing, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useTheme } from '@/theme';
 
 const FRAMES = [
@@ -11,6 +11,7 @@ const FRAMES = [
 ];
 
 const FRAME_MS = 110;
+const NATIVE_DRIVER = Platform.OS !== 'web';
 
 type Props = {
   running: boolean;
@@ -38,13 +39,13 @@ export function CatSplash({ running, onFirstFrame }: Props) {
         toValue: 1,
         duration: 2400,
         easing: Easing.linear,
-        useNativeDriver: true,
+        useNativeDriver: NATIVE_DRIVER,
       }),
     );
     const hop = Animated.loop(
       Animated.sequence([
-        Animated.timing(bob, { toValue: -9, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(bob, { toValue: 0, duration: 130, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+        Animated.timing(bob, { toValue: -9, duration: 130, easing: Easing.out(Easing.quad), useNativeDriver: NATIVE_DRIVER }),
+        Animated.timing(bob, { toValue: 0, duration: 130, easing: Easing.in(Easing.quad), useNativeDriver: NATIVE_DRIVER }),
       ]),
     );
     run.start();
@@ -60,7 +61,7 @@ export function CatSplash({ running, onFirstFrame }: Props) {
       toValue: running ? 1 : 0,
       duration: running ? 220 : 320,
       easing: Easing.inOut(Easing.quad),
-      useNativeDriver: true,
+      useNativeDriver: NATIVE_DRIVER,
     }).start();
   }, [fade, running]);
 

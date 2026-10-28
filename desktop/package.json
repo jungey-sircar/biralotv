@@ -1,0 +1,8 @@
+{
+  "name": "biralotv-desktop",
+  "productName": "biralotv",
+  "version": "1.0.0",
+  "description": "biralotv desktop player",
+  "main": "main.cjs",
+  "author": "biralotv"
+}

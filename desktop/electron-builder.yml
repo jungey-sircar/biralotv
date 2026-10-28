@@ -1,0 +1,31 @@
+appId: com.biralotv.desktop
+productName: biralotv
+directories:
+  output: ../desktop-build
+  buildResources: build
+electronVersion: 45.1.0
+electronDist: ../node_modules/electron/dist
+files:
+  - main.cjs
+  - server.cjs
+  - package.json
+extraResources:
+  - from: ../desktop-web
+    to: desktop-web
+  - from: build/icon.ico
+    to: app-icon.ico
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+    - portable
+  artifactName: ${productName}-setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: biralotv
+portable:
+  artifactName: ${productName}-portable.${ext}

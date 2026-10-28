@@ -46,3 +46,5 @@ example
 
 # build artifacts
 build-artifacts/*.apk
+/desktop-web/
+/desktop-build/

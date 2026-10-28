@@ -6,8 +6,8 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { useVideoPlayer, VideoView } from 'expo-video';
 import { SafeScreen } from '@/components/SafeScreen';
+import { StreamPlayer } from '@/components/stream-player';
 
 const MB_UA = 'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36';
 function embedUrl(ch: Channel): string | null {
@@ -82,25 +82,6 @@ export default function Player() {
   const isEmbed = channel ? embedUrl(channel) !== null : false;
   const stream = channel && !isEmbed ? channel.stream : undefined;
 
-  const player = useVideoPlayer(stream ?? null, p => {
-    void p;
-  });
-
-  useEffect(() => {
-    let alive = true;
-    if (stream) {
-      player
-        .replaceAsync(stream)
-        .then(() => {
-          if (alive) player.play();
-        })
-        .catch(() => {});
-    }
-    return () => {
-      alive = false;
-    };
-  }, [stream, player]);
-
   const webSrc = useMemo(() => (channel ? embedUrl(channel) : null), [channel]);
   const resolving = !!server && !!id && !remote && !fromParams?.stream && !error;
 
@@ -174,13 +155,7 @@ export default function Player() {
               )}
             />
           ) : stream ? (
-            <VideoView
-              style={styles.video}
-              player={player}
-              contentFit="contain"
-              nativeControls
-              allowsPictureInPicture
-            />
+            <StreamPlayer stream={stream} style={styles.video} />
           ) : resolving ? (
             <View style={styles.center}>
               <ActivityIndicator size="large" color={c.accent} />
