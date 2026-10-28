@@ -43,3 +43,6 @@ example
 # generated native folders
 /ios
 /android
+
+# build artifacts
+build-artifacts/*.apk
