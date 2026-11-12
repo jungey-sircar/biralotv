@@ -38,11 +38,19 @@ const CSP = [
 ].join('; ');
 
 /** Serves an `expo export --platform web` output on a loopback port with SPA fallback. */
-function startServer(webRoot) {
+function startServer(webRoot, runtimeConfig = {}) {
   const root = path.resolve(webRoot);
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const pathname = decodeURIComponent(new URL(req.url, 'http://127.0.0.1').pathname);
+      if (pathname === '/__biralotv_config.json') {
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
+        res.end(JSON.stringify(runtimeConfig));
+        return;
+      }
       const rel = path.normalize(pathname).replace(/^([/\\])+/, '');
       let file = path.join(root, rel);
       if (!file.startsWith(root)) {

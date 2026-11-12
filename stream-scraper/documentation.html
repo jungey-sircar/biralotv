@@ -1,0 +1,1052 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#080808">
+<title>stream-scraper API reference</title>
+<style>
+  :root {
+    --bg: #080808;
+    --surface: #101010;
+    --surface-2: #141414;
+    --line: #262626;
+    --line-strong: #3a3a3a;
+    --ink: #f4f4f4;
+    --muted: #9b9b9b;
+    --dim: #6e6e6e;
+    --radius-outer: 16px;
+    --radius-inner: 10px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+
+  *,
+  *::before,
+  *::after { box-sizing: border-box; }
+
+  html {
+    background: var(--bg);
+    color-scheme: dark;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: var(--ink);
+    color: var(--bg);
+  }
+
+  a {
+    color: inherit;
+    text-decoration-color: var(--line-strong);
+    text-underline-offset: 3px;
+  }
+
+  a:hover { text-decoration-color: var(--ink); }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    padding: 5px 11px;
+    cursor: pointer;
+    transition: transform 100ms ease-out;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button:active { transform: scale(0.97); }
+
+  button:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+  }
+
+  code, pre { font-family: var(--mono); }
+
+  code {
+    font-size: 0.9em;
+    color: #dedede;
+  }
+
+  .shell {
+    display: grid;
+    grid-template-columns: 268px minmax(0, 1fr);
+    min-height: 100vh;
+  }
+
+  .side {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    border-right: 1px solid var(--line);
+    padding: 30px 22px 40px;
+    background: var(--bg);
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 22px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand strong {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+  }
+
+  .version {
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  .nav {
+    display: grid;
+    gap: 1px;
+    margin-top: 22px;
+  }
+
+  .nav-label {
+    margin: 22px 0 8px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .nav a {
+    display: block;
+    padding: 7px 10px;
+    margin-left: -10px;
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 13px;
+    text-decoration: none;
+  }
+
+  .nav a:hover {
+    color: var(--ink);
+    background: var(--surface);
+    text-decoration: none;
+  }
+
+  .nav a[aria-current="true"] {
+    color: var(--ink);
+    background: var(--surface);
+  }
+
+  .nav a[aria-current="true"]::before {
+    content: "";
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-right: 8px;
+    vertical-align: 2px;
+    background: var(--ink);
+    border-radius: 50%;
+  }
+
+  .main {
+    min-width: 0;
+    padding: 72px clamp(24px, 5vw, 76px) 120px;
+  }
+
+  .doc {
+    width: min(100%, 860px);
+    margin: 0 auto;
+  }
+
+  .eyebrow {
+    margin: 0 0 18px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    margin: 0;
+    max-width: 760px;
+    font-size: clamp(38px, 6vw, 68px);
+    line-height: 0.98;
+    letter-spacing: -0.055em;
+    font-weight: 600;
+  }
+
+  .lead {
+    max-width: 640px;
+    margin: 24px 0 0;
+    color: var(--muted);
+    font-size: 17px;
+    line-height: 1.6;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 30px;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 28px;
+    padding: 4px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    text-decoration: none;
+  }
+
+  .pill .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ink);
+  }
+
+  .section {
+    padding-top: 64px;
+    scroll-margin-top: 28px;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 20px;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.2;
+    letter-spacing: -0.03em;
+    font-weight: 600;
+  }
+
+  .section-index {
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .section p { color: var(--muted); }
+
+  .section p strong { color: var(--ink); font-weight: 500; }
+
+  h3 {
+    margin: 34px 0 10px;
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .servers {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 24px;
+  }
+
+  .server {
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-outer);
+    background: var(--surface);
+  }
+
+  .server .id {
+    display: block;
+    margin-bottom: 18px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .server .server-note {
+    display: block;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .server.default {
+    background: var(--ink);
+    color: var(--bg);
+    border-color: var(--ink);
+  }
+
+  .server.default .server-note { color: #4d4d4d; }
+
+  .server .tag {
+    display: inline-block;
+    margin-top: 14px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .server.default .tag { color: #6a6a6a; }
+
+  .table-wrap {
+    margin-top: 22px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-outer);
+    overflow: hidden;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  th, td {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  th {
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  tbody tr:last-child td { border-bottom: 0; }
+
+  td code { white-space: nowrap; }
+
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--mono);
+    white-space: nowrap;
+  }
+
+  .endpoint {
+    margin-top: 26px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-outer);
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .endpoint-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-2);
+  }
+
+  .method {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    padding: 2px 7px;
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+
+  .path {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+
+  .endpoint-body { padding: 18px; }
+
+  .endpoint-body > :first-child { margin-top: 0; }
+  .endpoint-body > :last-child { margin-bottom: 0; }
+
+  .endpoint-body p {
+    margin: 0 0 14px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .code {
+    margin-top: 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-inner);
+    background: #0b0b0b;
+    overflow: hidden;
+  }
+
+  .code-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 36px;
+    padding: 5px 6px 5px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .code-label {
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .copy {
+    padding: 4px 10px;
+    border-color: var(--line);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+  }
+
+  .copy:hover { color: var(--ink); border-color: var(--line-strong); }
+  .copy.copied { color: var(--bg); background: var(--ink); border-color: var(--ink); }
+
+  pre {
+    margin: 0;
+    padding: 15px 16px;
+    overflow-x: auto;
+    color: #d2d2d2;
+    font-size: 12px;
+    line-height: 1.7;
+    tab-size: 2;
+  }
+
+  pre code { font-size: inherit; color: inherit; }
+
+  .note {
+    margin-top: 20px;
+    padding: 13px 15px;
+    border: 1px solid var(--line);
+    border-left: 2px solid var(--ink);
+    border-radius: var(--radius-inner);
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .note strong { color: var(--ink); font-weight: 500; }
+
+  .footer {
+    margin-top: 72px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    color: var(--dim);
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+
+  .skip {
+    position: absolute;
+    left: -9999px;
+    top: 12px;
+    z-index: 10;
+    padding: 8px 12px;
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 6px;
+  }
+
+  .skip:focus { left: 12px; }
+
+  @media (max-width: 920px) {
+    .shell { display: block; }
+    .side {
+      position: sticky;
+      top: 0;
+      height: auto;
+      z-index: 5;
+      border-right: 0;
+      border-bottom: 1px solid var(--line);
+      padding: 14px 18px 12px;
+    }
+    .brand { padding-bottom: 12px; }
+    .nav {
+      display: flex;
+      gap: 2px;
+      margin-top: 12px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .nav::-webkit-scrollbar { display: none; }
+    .nav-label { display: none; }
+    .nav a {
+      flex: 0 0 auto;
+      margin: 0;
+      padding: 6px 9px;
+      white-space: nowrap;
+    }
+    .nav a[aria-current="true"]::before { display: none; }
+    .main { padding: 48px 18px 90px; }
+    .servers { grid-template-columns: 1fr; }
+    .section { padding-top: 50px; scroll-margin-top: 132px; }
+  }
+
+  @media (max-width: 620px) {
+    .endpoint-body { padding: 15px; }
+    .footer { display: block; }
+    .footer span { display: block; margin-top: 6px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    button { transition: none; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="shell">
+  <aside class="side">
+    <div class="brand">
+      <strong>stream-scraper</strong>
+      <span class="version">v1.0.0</span>
+    </div>
+    <nav class="nav" aria-label="Documentation sections">
+      <span class="nav-label">Start</span>
+      <a href="#overview">Overview</a>
+      <a href="#quickstart">Quick start</a>
+      <a href="#configuration">Configuration</a>
+      <span class="nav-label">Reference</span>
+      <a href="#endpoints">Endpoints</a>
+      <a href="#health">Health</a>
+      <a href="#servers">Servers</a>
+      <a href="#movie">Movie</a>
+      <a href="#episode">Episode</a>
+      <a href="#stream">Stream proxy</a>
+      <a href="#response">Response model</a>
+      <a href="#errors">Errors</a>
+      <span class="nav-label">Usage</span>
+      <a href="#playback">Playback</a>
+      <a href="#tests">Tests</a>
+      <a href="#notes">Notes</a>
+    </nav>
+  </aside>
+
+  <main class="main" id="main">
+    <article class="doc">
+      <header>
+        <p class="eyebrow">API reference / Go service</p>
+        <h1>Stream links, three modules, one endpoint.</h1>
+        <p class="lead">Resolve movies and TV episodes into playable HLS links. Pick a server module, pass a TMDB id, and the proxy keeps the upstream URLs behind stable local paths.</p>
+        <div class="meta-row">
+          <span class="pill"><span class="dot"></span> plain JSON</span>
+          <span class="pill">no auth</span>
+          <span class="pill">default port <span class="num">8080</span></span>
+        </div>
+      </header>
+
+      <section class="section" id="overview">
+        <div class="section-head">
+          <h2>Overview</h2>
+          <span class="section-index">01</span>
+        </div>
+        <p>The service exposes three interchangeable server modules. <strong>server1</strong> is the default and can hop between mirrors. <strong>server2</strong> walks a primary catalog and falls back to a secondary catalog. <strong>server3</strong> uses the secondary catalog only.</p>
+        <div class="servers">
+          <div class="server default">
+            <span class="id">server1</span>
+            <span class="server-note">Default. Tries the requested mirror first, then up to three alternates.</span>
+            <span class="tag">default</span>
+          </div>
+          <div class="server">
+            <span class="id">server2</span>
+            <span class="server-note">Primary catalog first, secondary catalog as fallback.</span>
+            <span class="tag">fallback</span>
+          </div>
+          <div class="server">
+            <span class="id">server3</span>
+            <span class="server-note">Secondary catalog only. No fallback to the primary catalog.</span>
+            <span class="tag">single path</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="quickstart">
+        <div class="section-head">
+          <h2>Quick start</h2>
+          <span class="section-index">02</span>
+        </div>
+        <p>Run from the project folder. Go 1.25 or newer is required.</p>
+        <div class="code">
+          <div class="code-head"><span class="code-label">shell</span><button class="copy" type="button">Copy</button></div>
+          <pre><code>cd stream-scraper
+go mod download
+go run .</code></pre>
+        </div>
+        <p style="margin-top:16px">Build a single binary when you are done testing.</p>
+        <div class="code">
+          <div class="code-head"><span class="code-label">shell</span><button class="copy" type="button">Copy</button></div>
+          <pre><code>go build -o stream-scraper .
+./stream-scraper</code></pre>
+        </div>
+        <div class="code">
+          <div class="code-head"><span class="code-label">health check</span><button class="copy" type="button">Copy</button></div>
+          <pre><code>curl http://localhost:8080/healthz</code></pre>
+        </div>
+      </section>
+
+      <section class="section" id="configuration">
+        <div class="section-head">
+          <h2>Configuration</h2>
+          <span class="section-index">03</span>
+        </div>
+        <p>All configuration is read from environment variables at startup.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Variable</th><th>Default</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>PORT</code></td><td class="num">8080</td><td>HTTP listen port.</td></tr>
+              <tr><td><code>PUBLIC_BASE_URL</code></td><td>request host</td><td>Base URL placed in returned stream links. Set it behind a reverse proxy.</td></tr>
+              <tr><td><code>SCRAPER_UPSTREAM_PROXY</code></td><td>empty</td><td>Optional HTTP or SOCKS5 proxy for upstream requests.</td></tr>
+              <tr><td><code>SCRAPER_UPSTREAM_PROXY_HOSTS</code></td><td>empty</td><td>Comma separated host suffixes that should use the proxy. Empty means all requests use it.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="code">
+          <div class="code-head"><span class="code-label">example</span><button class="copy" type="button">Copy</button></div>
+          <pre><code>PORT=9000 \
+PUBLIC_BASE_URL=https://scraper.example.com \
+SCRAPER_UPSTREAM_PROXY=socks5://127.0.0.1:1080 \
+SCRAPER_UPSTREAM_PROXY_HOSTS=api.example.com,media.example.com \
+./stream-scraper</code></pre>
+        </div>
+        <div class="note"><strong>Reverse proxy:</strong> set <code>PUBLIC_BASE_URL</code> to the public origin. Otherwise returned links use the request host and protocol.</div>
+      </section>
+
+      <section class="section" id="endpoints">
+        <div class="section-head">
+          <h2>Endpoints</h2>
+          <span class="section-index">04</span>
+        </div>
+        <p>Five routes. Two resolve media, one resolves proxy tokens, one lists the modules, one reports health.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><span class="method">GET</span></td><td><code>/healthz</code></td><td>Process health and uptime.</td></tr>
+              <tr><td><span class="method">GET</span></td><td><code>/v1/servers</code></td><td>List the three server aliases.</td></tr>
+              <tr><td><span class="method">GET</span></td><td><code>/v1/movies/{tmdb_id}</code></td><td>Resolve a movie.</td></tr>
+              <tr><td><span class="method">GET</span></td><td><code>/v1/shows/{tmdb_id}/seasons/{season}/episodes/{episode}</code></td><td>Resolve a TV episode.</td></tr>
+              <tr><td><span class="method">GET</span></td><td><code>/v1/stream/{token}</code></td><td>Playback proxy for generated links.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="health">
+        <div class="section-head">
+          <h2>Health</h2>
+          <span class="section-index">05</span>
+        </div>
+        <div class="endpoint">
+          <div class="endpoint-head"><span class="method">GET</span><span class="path">/healthz</span></div>
+          <div class="endpoint-body">
+            <p>Returns process status, uptime in seconds, and the API version.</p>
+            <div class="code">
+              <div class="code-head"><span class="code-label">request</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>curl http://localhost:8080/healthz</code></pre>
+            </div>
+            <div class="code">
+              <div class="code-head"><span class="code-label">200 response</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>{
+  "status": "ok",
+  "uptime_s": 12,
+  "version": "1.0.0"
+}</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="servers">
+        <div class="section-head">
+          <h2>Servers</h2>
+          <span class="section-index">06</span>
+        </div>
+        <div class="endpoint">
+          <div class="endpoint-head"><span class="method">GET</span><span class="path">/v1/servers</span></div>
+          <div class="endpoint-body">
+            <p>Lists the three aliases accepted by the <code>server</code> query parameter.</p>
+            <div class="code">
+              <div class="code-head"><span class="code-label">request</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>curl http://localhost:8080/v1/servers</code></pre>
+            </div>
+            <div class="code">
+              <div class="code-head"><span class="code-label">200 response</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>{
+  "servers": [
+    {
+      "id": "server1",
+      "note": "Default. Optional mirror query parameter."
+    },
+    {
+      "id": "server2",
+      "note": "Primary catalog first, secondary catalog fallback."
+    },
+    {
+      "id": "server3",
+      "note": "Secondary catalog only. No fallback."
+    }
+  ]
+}</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="movie">
+        <div class="section-head">
+          <h2>Movie</h2>
+          <span class="section-index">07</span>
+        </div>
+        <div class="endpoint">
+          <div class="endpoint-head"><span class="method">GET</span><span class="path">/v1/movies/{tmdb_id}</span></div>
+          <div class="endpoint-body">
+            <p>Resolves a movie by numeric TMDB id. The response contains a master HLS playlist and, when available, individual quality variants.</p>
+            <h3>Query parameters</h3>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Name</th><th>Values</th><th>Default</th><th>Meaning</th></tr></thead>
+                <tbody>
+                  <tr><td><code>server</code></td><td><code>server1</code> <code>server2</code> <code>server3</code></td><td><code>server1</code></td><td>Server module to use.</td></tr>
+                  <tr><td><code>mirror</code></td><td><code>miami</code> <code>delhi</code> <code>berlin</code> <code>paris</code> <code>munich</code></td><td><code>miami</code></td><td>First mirror to try. <code>server1</code> only.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="code">
+              <div class="code-head"><span class="code-label">request</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>curl 'http://localhost:8080/v1/movies/19?server=server1'
+curl 'http://localhost:8080/v1/movies/19?server=server2'
+curl 'http://localhost:8080/v1/movies/19?server=server3'
+curl 'http://localhost:8080/v1/movies/19?server=server1&amp;mirror=delhi'</code></pre>
+            </div>
+            <div class="code">
+              <div class="code-head"><span class="code-label">200 response</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>{
+  "type": "movie",
+  "tmdb_id": 19,
+  "server": "server1",
+  "resolved_by": "miami",
+  "playlist": "http://localhost:8080/v1/stream/14559efd36019650cc",
+  "streams": [
+    {
+      "quality": "1080p",
+      "url": "http://localhost:8080/v1/stream/5c6713ba322eeead58"
+    },
+    {
+      "quality": "720p",
+      "url": "http://localhost:8080/v1/stream/3463894611299b9d10"
+    }
+  ]
+}</code></pre>
+            </div>
+            <div class="note"><strong>Playlist first.</strong> Use <code>playlist</code> for normal playback. <code>streams</code> is there when a caller wants to pin one quality.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="episode">
+        <div class="section-head">
+          <h2>Episode</h2>
+          <span class="section-index">08</span>
+        </div>
+        <div class="endpoint">
+          <div class="endpoint-head"><span class="method">GET</span><span class="path">/v1/shows/{tmdb_id}/seasons/{season}/episodes/{episode}</span></div>
+          <div class="endpoint-body">
+            <p>Resolves a TV episode. Season starts at <span class="num">1</span>. Episode may be <span class="num">0</span> for providers that use zero based specials.</p>
+            <div class="code">
+              <div class="code-head"><span class="code-label">request</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>curl 'http://localhost:8080/v1/shows/1399/seasons/1/episodes/1?server=server1'
+curl 'http://localhost:8080/v1/shows/1399/seasons/1/episodes/1?server=server2'
+curl 'http://localhost:8080/v1/shows/1399/seasons/1/episodes/1?server=server3'</code></pre>
+            </div>
+            <div class="code">
+              <div class="code-head"><span class="code-label">200 response</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>{
+  "type": "tv",
+  "tmdb_id": 1399,
+  "season": 1,
+  "episode": 1,
+  "server": "server3",
+  "resolved_by": "secondary",
+  "playlist": "http://localhost:8080/v1/stream/26f72eb7cc2e3a5352",
+  "streams": [
+    {
+      "quality": "FULL HD",
+      "url": "http://localhost:8080/v1/stream/26f72eb7cc2e3a5352"
+    }
+  ]
+}</code></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="stream">
+        <div class="section-head">
+          <h2>Stream proxy</h2>
+          <span class="section-index">09</span>
+        </div>
+        <div class="endpoint">
+          <div class="endpoint-head"><span class="method">GET</span><span class="path">/v1/stream/{token}</span></div>
+          <div class="endpoint-body">
+            <p>Internal playback route. The proxy resolves the token, applies the required upstream headers, and forwards the bytes. HLS playlists are rewritten so variants, keys, init maps and segments all point back through this route.</p>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Behaviour</th><th>Detail</th></tr></thead>
+                <tbody>
+                  <tr><td>Range requests</td><td>Forwarded, so seeking works.</td></tr>
+                  <tr><td>HLS rewrite</td><td>Recursive for playlists, variants, keys and segments.</td></tr>
+                  <tr><td>Token lifetime</td><td>Four hours, held in memory.</td></tr>
+                  <tr><td>Token identity</td><td>Stable for a media path across rotating query strings.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="code">
+              <div class="code-head"><span class="code-label">request</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>curl 'http://localhost:8080/v1/stream/14559efd36019650cc'</code></pre>
+            </div>
+            <div class="code">
+              <div class="code-head"><span class="code-label">playlist response</span><button class="copy" type="button">Copy</button></div>
+              <pre><code>#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=6113605,RESOLUTION=1440x1080
+http://localhost:8080/v1/stream/6ca530d4c2cbded6d6
+#EXT-X-STREAM-INF:BANDWIDTH=16214159,RESOLUTION=2880x2160
+http://localhost:8080/v1/stream/283b768ae4e49b7a24</code></pre>
+            </div>
+            <div class="note"><strong>Do not construct tokens.</strong> Use the URLs returned by the movie or episode endpoint. A missing or expired token returns <code>stream_not_found</code>.</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="response">
+        <div class="section-head">
+          <h2>Response model</h2>
+          <span class="section-index">10</span>
+        </div>
+        <p>Movie and episode endpoints share one response shape.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+            <tbody>
+              <tr><td><code>type</code></td><td><code>movie</code> or <code>tv</code></td><td>Media kind.</td></tr>
+              <tr><td><code>tmdb_id</code></td><td>integer</td><td>Numeric TMDB id.</td></tr>
+              <tr><td><code>season</code></td><td>integer</td><td>TV only.</td></tr>
+              <tr><td><code>episode</code></td><td>integer</td><td>TV only.</td></tr>
+              <tr><td><code>server</code></td><td>string</td><td><code>server1</code>, <code>server2</code>, or <code>server3</code>.</td></tr>
+              <tr><td><code>resolved_by</code></td><td>string</td><td>Mirror name, or <code>primary</code> / <code>secondary</code>.</td></tr>
+              <tr><td><code>playlist</code></td><td>string</td><td>Master HLS URL through the proxy. Optional.</td></tr>
+              <tr><td><code>streams</code></td><td>array</td><td>Objects with <code>quality</code> and <code>url</code>. Empty when none are exposed.</td></tr>
+              <tr><td><code>thumbnails</code></td><td>string</td><td>Optional proxied thumbnail URL.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="errors">
+        <div class="section-head">
+          <h2>Errors</h2>
+          <span class="section-index">11</span>
+        </div>
+        <p>Every error is JSON with a stable code and a short message.</p>
+        <div class="code">
+          <div class="code-head"><span class="code-label">error shape</span><button class="copy" type="button">Copy</button></div>
+          <pre><code>{
+  "error": {
+    "code": "no_streams",
+    "message": "No stream was found for this title on the requested server."
+  }
+}</code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Status</th><th>Code</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td class="num">400</td><td><code>invalid_tmdb_id</code></td><td>The id is not a positive integer.</td></tr>
+              <tr><td class="num">400</td><td><code>invalid_server</code></td><td>Use <code>server1</code>, <code>server2</code>, or <code>server3</code>.</td></tr>
+              <tr><td class="num">400</td><td><code>invalid_episode</code></td><td>Season is zero, or season or episode is not numeric.</td></tr>
+              <tr><td class="num">404</td><td><code>no_streams</code></td><td>The upstream has no source for this title.</td></tr>
+              <tr><td class="num">404</td><td><code>stream_not_found</code></td><td>The proxy token expired or never existed.</td></tr>
+              <tr><td class="num">502</td><td><code>upstream_error</code></td><td>An upstream provider or CDN returned an error.</td></tr>
+              <tr><td class="num">504</td><td><code>upstream_timeout</code></td><td>An upstream provider did not answer in time.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="playback">
+        <div class="section-head">
+          <h2>Playback</h2>
+          <span class="section-index">12</span>
+        </div>
+        <p>Fetch the movie or episode response, then hand <code>playlist</code> to hls.js. The proxy sends CORS headers, so the page can live on another origin.</p>
+        <div class="code">
+          <div class="code-head"><span class="code-label">javascript</span><button class="copy" type="button">Copy</button></div>
+          <pre><code>const info = await fetch(
+  "http://localhost:8080/v1/movies/19?server=server2"
+).then((response) =&gt; response.json());
+
+const video = document.querySelector("video");
+const hls = new Hls();
+hls.loadSource(info.playlist);
+hls.attachMedia(video);</code></pre>
+        </div>
+        <p style="margin-top:16px">VLC works with the same playlist URL.</p>
+        <div class="code">
+          <div class="code-head"><span class="code-label">shell</span><button class="copy" type="button">Copy</button></div>
+          <pre><code>vlc "http://localhost:8080/v1/stream/14559efd36019650cc"</code></pre>
+        </div>
+      </section>
+
+      <section class="section" id="tests">
+        <div class="section-head">
+          <h2>Tests</h2>
+          <span class="section-index">13</span>
+        </div>
+        <p>The test suite is offline. It covers source mapping, validation, mirror ordering, catalog candidate order, token stability, HLS rewriting, range forwarding, and proxy host scoping.</p>
+        <div class="code">
+          <div class="code-head"><span class="code-label">shell</span><button class="copy" type="button">Copy</button></div>
+          <pre><code>go test ./...
+go vet ./...
+go build -o stream-scraper .</code></pre>
+        </div>
+        <div class="code">
+          <div class="code-head"><span class="code-label">live smoke test</span><button class="copy" type="button">Copy</button></div>
+          <pre><code>PORT=8300 PUBLIC_BASE_URL=http://127.0.0.1:8300 go run .
+curl 'http://127.0.0.1:8300/v1/movies/19?server=server1'
+curl 'http://127.0.0.1:8300/v1/movies/19?server=server2'
+curl 'http://127.0.0.1:8300/v1/movies/19?server=server3'</code></pre>
+        </div>
+      </section>
+
+      <section class="section" id="notes">
+        <div class="section-head">
+          <h2>Notes</h2>
+          <span class="section-index">14</span>
+        </div>
+        <p>Operational details that matter when this moves from localhost to a host.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Topic</th><th>Detail</th></tr></thead>
+            <tbody>
+              <tr><td>Token lifetime</td><td>Four hours, in memory. Restarting the process invalidates every link.</td></tr>
+              <tr><td>Multiple instances</td><td>The token store is process local. Use one instance or sticky routing.</td></tr>
+              <tr><td>Upstream expiry</td><td>Provider URLs can expire before the token TTL. Fetch a fresh response when playback stops.</td></tr>
+              <tr><td>Blocked host</td><td>Set the upstream proxy variables first. Scope them to the hosts that need the proxy.</td></tr>
+              <tr><td>Provider changes</td><td>Catalog pages and source APIs change without notice. A failing module usually means its page shape changed.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>stream-scraper v1.0.0</span>
+        <span>Go service / plain JSON / HLS proxy</span>
+      </footer>
+    </article>
+  </main>
+</div>
+
+<script>
+  const links = [...document.querySelectorAll('.nav a[href^="#"]')];
+  const sections = links
+    .map((link) => document.querySelector(link.getAttribute('href')))
+    .filter(Boolean);
+
+  const setActive = (id) => {
+    links.forEach((link) => {
+      link.setAttribute('aria-current', link.getAttribute('href') === '#' + id ? 'true' : 'false');
+    });
+  };
+
+  if ('IntersectionObserver' in window) {
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+      if (visible[0]) setActive(visible[0].target.id);
+    }, { rootMargin: '-15% 0px -65% 0px', threshold: [0, 0.25, 0.6] });
+    sections.forEach((section) => observer.observe(section));
+  }
+
+  document.querySelectorAll('.copy').forEach((button) => {
+    button.addEventListener('click', async () => {
+      const code = button.closest('.code').querySelector('pre code');
+      if (!code) return;
+      const text = code.textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.setAttribute('readonly', '');
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.select();
+        document.execCommand('copy');
+        area.remove();
+      }
+      button.textContent = 'Copied';
+      button.classList.add('copied');
+      window.setTimeout(() => {
+        button.textContent = 'Copy';
+        button.classList.remove('copied');
+      }, 1400);
+    });
+  });
+</script>
+</body>
+</html>

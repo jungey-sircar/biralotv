@@ -8,6 +8,7 @@ import { VodRow } from '@/components/vod-row';
 import type { Channel } from '@/lib/api';
 import { searchArchive, type VodItem } from '@/lib/archive';
 import { msBrowse, useMsConfigured } from '@/lib/media-server';
+import { tmdbLatestMovies, tmdbTrendingMovies } from '@/lib/tmdb';
 import { openVodItem } from '@/lib/util';
 import { useLocalStore } from '@/lib/store';
 import {
@@ -21,11 +22,12 @@ import { filterAdult, useSettings, useTheme } from '@/theme';
 const FEATURED_NAMES = ['News', 'Movies', 'Kids', 'Music', 'Sports'];
 const COUNTRY_CODES = ['us', 'gb', 'de'];
 const HEADER_LINKS = [
-  { href: '/on-demand', label: 'On Demand' },
-  { href: '/browse', label: 'Live TV' },
-  { href: '/channel-search', label: 'Search TV' },
-  { href: '/playlists', label: 'Playlists' },
-  { href: '/settings', label: 'Settings' },
+  { key: 'latest-movies', label: 'Latest Movies', onPress: () => router.push({ pathname: '/on-demand', params: { scope: 'latest-movies' } }) },
+  { key: 'on-demand', label: 'On Demand', onPress: () => router.push('/on-demand') },
+  { key: 'browse', label: 'Live TV', onPress: () => router.push('/browse') },
+  { key: 'search', label: 'Search TV', onPress: () => router.push('/channel-search') },
+  { key: 'playlists', label: 'Playlists', onPress: () => router.push('/playlists') },
+  { key: 'settings', label: 'Settings', onPress: () => router.push('/settings') },
 ] as const;
 
 type Section = { title: string; channels: Channel[] };
@@ -50,6 +52,8 @@ function Home() {
   const showAdult = useSettings(s => s.showAdult);
   const hasServer = useMsConfigured();
   const [sections, setSections] = useState<Section[]>([]);
+  const [latestMovies, setLatestMovies] = useState<VodItem[]>([]);
+  const [trendingMovies, setTrendingMovies] = useState<VodItem[]>([]);
   const [vod, setVod] = useState<VodItem[]>([]);
   const [library, setLibrary] = useState<VodItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,6 +66,18 @@ function Home() {
         const store = useLocalStore.getState();
         const recents = store.recents.slice(0, 20);
         const favorites = store.favorites.slice(0, 20);
+        const latestPromise = tmdbLatestMovies(1)
+          .catch(() => [] as VodItem[])
+          .then(items => {
+            setLatestMovies(items.slice(0, 14));
+            return items;
+          });
+        const trendingPromise = tmdbTrendingMovies(1)
+          .catch(() => [] as VodItem[])
+          .then(items => {
+            setTrendingMovies(items.slice(0, 14));
+            return items;
+          });
         const filmsPromise = searchArchive({ rows: 10 })
           .catch(() => [] as VodItem[])
           .then(items => {
@@ -95,7 +111,7 @@ function Home() {
         }
         const results = await Promise.all(tasks);
         setSections(results.filter((s): s is Section => s !== null));
-        await Promise.all([filmsPromise, libraryPromise]);
+        await Promise.all([latestPromise, trendingPromise, filmsPromise, libraryPromise]);
         setError('');
         setLoading(false);
       } catch (e) {
@@ -116,7 +132,7 @@ function Home() {
       <View style={styles.headerRow}>
         <Text style={[styles.title, { color: colors.text }]}>biraloTV</Text>
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Live TV from iptv-org, plus films and animation on demand
+          Live TV from iptv-org, plus latest movies and free films on demand
         </Text>
       </View>
       <ScrollView
@@ -127,9 +143,9 @@ function Home() {
       >
         {HEADER_LINKS.map(link => (
           <TouchableOpacity
-            key={link.href}
+            key={link.key}
             style={[styles.link, { backgroundColor: colors.elevated }]}
-            onPress={() => router.push(link.href)}
+            onPress={link.onPress}
           >
             <Text style={[styles.linkText, { color: colors.text }]}>{link.label}</Text>
           </TouchableOpacity>
@@ -138,14 +154,21 @@ function Home() {
     </View>
   );
 
+  const nothingYet =
+    sections.length === 0 &&
+    latestMovies.length === 0 &&
+    trendingMovies.length === 0 &&
+    vod.length === 0 &&
+    library.length === 0;
+
   let body;
-  if (loading && sections.length === 0 && vod.length === 0 && library.length === 0) {
+  if (loading && nothingYet) {
     body = (
       <View style={styles.empty}>
-        <Text style={[styles.emptyText, { color: colors.textMuted }]}>Loading channels…</Text>
+        <Text style={[styles.emptyText, { color: colors.textMuted }]}>Loading channels & movies…</Text>
       </View>
     );
-  } else if (sections.length === 0 && vod.length === 0 && library.length === 0) {
+  } else if (nothingYet) {
     body = (
       <View style={styles.empty}>
         <Text style={[styles.emptyTitle, { color: colors.text }]}>No channels yet</Text>
@@ -175,9 +198,25 @@ function Home() {
           }}
         />
         <VodRow
+          title="Latest movies"
+          items={latestMovies}
+          onSeeAll={() => router.push({ pathname: '/on-demand', params: { scope: 'latest-movies' } })}
+          onPress={item => {
+            void openVodItem(item).then(message => setNotice(message ?? ''));
+          }}
+        />
+        <VodRow
+          title="Trending movies"
+          items={trendingMovies}
+          onSeeAll={() => router.push({ pathname: '/on-demand', params: { scope: 'trending-movies' } })}
+          onPress={item => {
+            void openVodItem(item).then(message => setNotice(message ?? ''));
+          }}
+        />
+        <VodRow
           title="Free to watch"
           items={vod}
-          onSeeAll={() => router.push('/on-demand')}
+          onSeeAll={() => router.push({ pathname: '/on-demand', params: { scope: 'films' } })}
           onPress={item => {
             void openVodItem(item).then(message => setNotice(message ?? ''));
           }}

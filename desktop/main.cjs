@@ -1,5 +1,8 @@
 const { app, BrowserWindow, Menu, shell, session } = require('electron');
+const { spawn } = require('node:child_process');
 const fs = require('node:fs');
+const http = require('node:http');
+const net = require('node:net');
 const path = require('node:path');
 const { startServer } = require('./server.cjs');
 
@@ -10,6 +13,112 @@ const WEB_ROOT = app.isPackaged
 const ICON = app.isPackaged
   ? path.join(process.resourcesPath, 'app-icon.ico')
   : path.join(__dirname, 'build', 'icon.ico');
+
+const SCRAPER_BIN = app.isPackaged
+  ? path.join(process.resourcesPath, process.platform === 'win32' ? 'stream-scraper.exe' : 'stream-scraper')
+  : path.join(
+      __dirname,
+      '..',
+      'stream-scraper',
+      process.platform === 'win32' ? 'stream-scraper-windows-amd64.exe' : 'stream-scraper',
+    );
+
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.unref();
+    probe.on('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const addr = probe.address();
+      probe.close(err => (err ? reject(err) : resolve(addr.port)));
+    });
+  });
+}
+
+function probeHealth(url) {
+  return new Promise(resolve => {
+    const req = http.get(`${url}/healthz`, { timeout: 600 }, res => {
+      let body = '';
+      res.on('data', chunk => {
+        body += chunk;
+      });
+      res.on('end', () => {
+        if (res.statusCode !== 200) {
+          resolve(false);
+          return;
+        }
+        try {
+          const parsed = JSON.parse(body);
+          resolve(parsed && parsed.status === 'ok');
+        } catch {
+          resolve(false);
+        }
+      });
+    });
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function startScraper() {
+  if (!fs.existsSync(SCRAPER_BIN)) {
+    console.warn(`stream-scraper binary not found at ${SCRAPER_BIN}`);
+    return null;
+  }
+  const port = await getFreePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  let exited = false;
+
+  const child = spawn(SCRAPER_BIN, [], {
+    env: {
+      ...process.env,
+      HOST: '127.0.0.1',
+      PORT: String(port),
+      PUBLIC_BASE_URL: baseUrl,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
+
+  child.stdout?.on('data', chunk => {
+    const text = chunk.toString().trim();
+    if (text) console.log(`[stream-scraper] ${text}`);
+  });
+  child.stderr?.on('data', chunk => {
+    const text = chunk.toString().trim();
+    if (text) console.warn(`[stream-scraper] ${text}`);
+  });
+  child.on('exit', (code, signal) => {
+    exited = true;
+    if (code !== null && code !== 0) {
+      console.warn(`[stream-scraper] exited with code ${code} (${signal ?? 'none'})`);
+    }
+  });
+
+  const stop = () => {
+    if (!exited && !child.killed) {
+      try {
+        child.kill();
+      } catch {}
+    }
+  };
+
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline && !exited) {
+    if (await probeHealth(baseUrl)) {
+      console.log(`stream-scraper listening -> ${baseUrl}`);
+      return { url: baseUrl, stop };
+    }
+    await new Promise(done => setTimeout(done, 150));
+  }
+
+  console.warn('stream-scraper did not become healthy before timeout');
+  stop();
+  return null;
+}
 
 function buildMenu(win) {
   const template = [
@@ -45,8 +154,23 @@ async function createWindow() {
     app.quit();
     return;
   }
-  const server = await startServer(WEB_ROOT);
+  const scraper = await startScraper().catch(err => {
+    console.warn('stream-scraper startup failed:', err);
+    return null;
+  });
+  let server;
+  try {
+    server = await startServer(WEB_ROOT, { scraperUrl: scraper ? scraper.url : '' });
+  } catch (err) {
+    scraper?.stop();
+    throw err;
+  }
   console.log(`biralotv desktop -> ${server.url}`);
+
+  app.on('before-quit', () => {
+    scraper?.stop();
+    void server.close();
+  });
 
   const win = new BrowserWindow({
     width: 1280,
@@ -80,7 +204,6 @@ async function createWindow() {
   });
 
   await win.loadURL(server.url);
-  app.on('before-quit', () => void server.close());
 }
 
 if (!app.requestSingleInstanceLock()) {

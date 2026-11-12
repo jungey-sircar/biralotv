@@ -1,22 +1,48 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
-import { WebView } from 'react-native-webview';
 import { router, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { SafeScreen } from '@/components/SafeScreen';
-import { tmdbDetails, type TmdbDetails } from '@/lib/tmdb';
+import { TrailerPlayer } from '@/components/trailer-player';
+import {
+  discoverScraperBase,
+  listPlayableOptions,
+  pickPlayableStream,
+  resolveEpisodeStream,
+  resolveMovieStream,
+  SCRAPER_SERVERS,
+  ScraperError,
+  type ScraperServerId,
+  useScraperConfig,
+} from '@/lib/scraper';
+import {
+  tmdbDetails,
+  tmdbSeasonEpisodes,
+  type TmdbDetails,
+  type TmdbEpisodeSummary,
+} from '@/lib/tmdb';
 import { useTheme } from '@/theme';
-import { goBack } from '@/lib/util';
+import { goBack, openPlayer } from '@/lib/util';
 
 export default function VodDetail() {
   const params = useLocalSearchParams<{ kind?: string; id?: string; title?: string }>();
   const kind = params.kind === 'tv' ? 'tv' : 'movie';
   const id = Number(params.id ?? '');
   const { colors: c } = useTheme();
+  const preferredServer = useScraperConfig(s => s.server);
+  const [serverChoice, setServerChoice] = useState<ScraperServerId>(preferredServer);
   const [data, setData] = useState<TmdbDetails | null>(null);
   const [error, setError] = useState('');
   const [playing, setPlaying] = useState(false);
+
+  const [season, setSeason] = useState(1);
+  const [episode, setEpisode] = useState(1);
+  const [episodes, setEpisodes] = useState<TmdbEpisodeSummary[]>([]);
+  const [scraperReady, setScraperReady] = useState<boolean | null>(null);
+  const [resolving, setResolving] = useState(false);
+  const [streamError, setStreamError] = useState('');
+  const [needsScraperSetup, setNeedsScraperSetup] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) {
@@ -25,7 +51,15 @@ export default function VodDetail() {
     }
     setError('');
     try {
-      setData(await tmdbDetails(kind, id));
+      const details = await tmdbDetails(kind, id);
+      setData(details);
+      if (kind === 'tv' && details.seasons.length > 0) {
+        setSeason(prev =>
+          details.seasons.some(s => s.season_number === prev)
+            ? prev
+            : details.seasons[0].season_number,
+        );
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'could not load this title');
     }
@@ -36,6 +70,39 @@ export default function VodDetail() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    let alive = true;
+    discoverScraperBase({ probe: true })
+      .then(url => {
+        if (alive) setScraperReady(Boolean(url));
+      })
+      .catch(() => {
+        if (alive) setScraperReady(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (kind !== 'tv' || !id) return;
+    let alive = true;
+    tmdbSeasonEpisodes(id, season)
+      .then(list => {
+        if (!alive) return;
+        setEpisodes(list);
+        if (list.length > 0 && !list.some(ep => ep.episode_number === episode)) {
+          setEpisode(list[0].episode_number);
+        }
+      })
+      .catch(() => {
+        if (alive) setEpisodes([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [kind, id, season, episode]);
+
   const title = data?.item.title ?? params.title ?? 'Title';
   const meta = [
     data?.item.year,
@@ -44,6 +111,46 @@ export default function VodDetail() {
   ]
     .filter(Boolean)
     .join(' · ');
+
+  async function watchNow() {
+    if (!id || resolving) return;
+    setResolving(true);
+    setStreamError('');
+    setNeedsScraperSetup(false);
+    try {
+      const res =
+        kind === 'tv'
+          ? await resolveEpisodeStream(id, season, episode, serverChoice)
+          : await resolveMovieStream(id, serverChoice);
+      setScraperReady(true);
+      const variants = listPlayableOptions(res);
+      const chosen = pickPlayableStream(res)?.url;
+      if (!chosen) {
+        setStreamError('No playable stream was returned by stream-scraper.');
+        return;
+      }
+      openPlayer({
+        id: kind === 'tv' ? `scraper:tv:${id}:${season}:${episode}` : `scraper:movie:${id}`,
+        name: kind === 'tv' ? `${title} · S${season} E${episode}` : title,
+        stream: chosen,
+        source: `stream-scraper:${res.server}`,
+        logo: data?.item.poster ?? '',
+        hls: true,
+        scraperServer: res.server,
+        streamsJson: JSON.stringify(variants),
+        subtitlesJson: res.subtitles?.length ? JSON.stringify(res.subtitles) : undefined,
+        fresh: true,
+      });
+    } catch (e: unknown) {
+      if (e instanceof ScraperError && e.code === 'NO_SCRAPER') {
+        setScraperReady(false);
+        setNeedsScraperSetup(true);
+      }
+      setStreamError(e instanceof Error ? e.message : 'Could not resolve a stream.');
+    } finally {
+      setResolving(false);
+    }
+  }
 
   async function openProviders() {
     await WebBrowser.openBrowserAsync(
@@ -112,13 +219,172 @@ export default function VodDetail() {
               <Text style={[styles.overview, { color: c.textSecondary }]}>{data.item.overview}</Text>
             ) : null}
 
+            <View style={[styles.card, { backgroundColor: c.surface }]}>
+              <View style={styles.watchHeader}>
+                <Text style={[styles.cardTitle, { color: c.text }]}>Watch in app</Text>
+                <Text style={[styles.small, { color: scraperReady ? c.textSecondary : c.textMuted }]}>
+                  {scraperReady === null
+                    ? 'Checking stream-scraper…'
+                    : scraperReady
+                      ? 'stream-scraper connected'
+                      : 'stream-scraper not detected'}
+                </Text>
+              </View>
+
+              {kind === 'tv' ? (
+                <View style={styles.epControls}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.chipRow}
+                  >
+                    {data.seasons.length > 0
+                      ? data.seasons.map(s => {
+                          const active = s.season_number === season;
+                          return (
+                            <Pressable
+                              key={s.season_number}
+                              onPress={() => {
+                                setSeason(s.season_number);
+                                setEpisode(1);
+                              }}
+                              style={({ pressed }) => [
+                                styles.chip,
+                                { backgroundColor: active ? c.text : pressed ? c.pressed : c.elevated },
+                              ]}
+                            >
+                              <Text style={[styles.chipText, { color: active ? c.bg : c.textSecondary }]}>
+                                S{s.season_number}
+                              </Text>
+                            </Pressable>
+                          );
+                        })
+                      : [1, 2, 3].map(sNum => {
+                          const active = sNum === season;
+                          return (
+                            <Pressable
+                              key={sNum}
+                              onPress={() => {
+                                setSeason(sNum);
+                                setEpisode(1);
+                              }}
+                              style={({ pressed }) => [
+                                styles.chip,
+                                { backgroundColor: active ? c.text : pressed ? c.pressed : c.elevated },
+                              ]}
+                            >
+                              <Text style={[styles.chipText, { color: active ? c.bg : c.textSecondary }]}>
+                                S{sNum}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                  </ScrollView>
+
+                  {episodes.length > 0 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      contentContainerStyle={styles.chipRow}
+                    >
+                      {episodes.map(ep => {
+                        const active = ep.episode_number === episode;
+                        return (
+                          <Pressable
+                            key={ep.episode_number}
+                            onPress={() => setEpisode(ep.episode_number)}
+                            style={({ pressed }) => [
+                              styles.chip,
+                              { backgroundColor: active ? c.accent : pressed ? c.pressed : c.elevated },
+                            ]}
+                          >
+                            <Text style={[styles.chipText, { color: active ? '#fff' : c.textSecondary }]}>
+                              E{ep.episode_number}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.stepperRow}>
+                      <Text style={[styles.small, { color: c.textSecondary }]}>Episode</Text>
+                      <Pressable
+                        onPress={() => setEpisode(e => Math.max(1, e - 1))}
+                        style={[styles.stepBtn, { backgroundColor: c.elevated }]}
+                      >
+                        <Text style={[styles.chipText, { color: c.text }]}>−</Text>
+                      </Pressable>
+                      <Text style={[styles.stepVal, { color: c.text }]}>{episode}</Text>
+                      <Pressable
+                        onPress={() => setEpisode(e => e + 1)}
+                        style={[styles.stepBtn, { backgroundColor: c.elevated }]}
+                      >
+                        <Text style={[styles.chipText, { color: c.text }]}>+</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              ) : null}
+
+              <View style={styles.chipRowWrap}>
+                {SCRAPER_SERVERS.map(srv => {
+                  const active = serverChoice === srv.id;
+                  return (
+                    <Pressable
+                      key={srv.id}
+                      onPress={() => setServerChoice(srv.id)}
+                      style={({ pressed }) => [
+                        styles.chip,
+                        { backgroundColor: active ? c.text : pressed ? c.pressed : c.elevated },
+                      ]}
+                    >
+                      <Text style={[styles.chipText, { color: active ? c.bg : c.textSecondary }]}>
+                        {srv.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Pressable
+                onPress={() => void watchNow()}
+                disabled={resolving}
+                style={({ pressed }) => [
+                  styles.watchBtn,
+                  { backgroundColor: pressed || resolving ? c.elevated : c.accent },
+                ]}
+              >
+                {resolving ? <ActivityIndicator size="small" color="#fff" /> : null}
+                <Text style={styles.buttonText}>
+                  {resolving
+                    ? 'Resolving stream…'
+                    : kind === 'tv'
+                      ? `Watch S${season} E${episode}`
+                      : 'Watch movie'}
+                </Text>
+              </Pressable>
+
+              {streamError ? (
+                <View style={styles.streamErrBox}>
+                  <Text style={[styles.streamErrText, { color: c.danger }]}>{streamError}</Text>
+                  {needsScraperSetup ? (
+                    <Pressable onPress={() => router.push('/settings')} hitSlop={6}>
+                      <Text style={[styles.link, { color: c.accent }]}>Open Settings to configure ›</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+            </View>
+
             <View style={styles.actions}>
               {data.trailerKey ? (
                 <Pressable
                   onPress={() => setPlaying(v => !v)}
-                  style={({ pressed }) => [styles.button, { backgroundColor: pressed ? c.elevated : c.accent }]}
+                  style={({ pressed }) => [styles.button, { backgroundColor: pressed ? c.elevated : c.surface }]}
                 >
-                  <Text style={styles.buttonText}>{playing ? 'Hide trailer' : 'Play trailer'}</Text>
+                  <Text style={[styles.buttonTextAlt, { color: c.text }]}>
+                    {playing ? 'Hide trailer' : 'Play trailer'}
+                  </Text>
                 </Pressable>
               ) : null}
               <Pressable
@@ -132,13 +398,7 @@ export default function VodDetail() {
             </View>
 
             {playing && data.trailerKey ? (
-              <WebView
-                source={{ uri: `https://www.youtube.com/embed/${data.trailerKey}?autoplay=1` }}
-                style={styles.player}
-                allowsFullscreenVideo
-                allowsInlineMediaPlayback
-                mediaPlaybackRequiresUserAction={false}
-              />
+              <TrailerPlayer youtubeKey={data.trailerKey} style={styles.player} />
             ) : null}
 
             <View style={[styles.card, { backgroundColor: c.surface }]}>
@@ -165,10 +425,6 @@ export default function VodDetail() {
               <Pressable onPress={openProviders} hitSlop={6}>
                 <Text style={[styles.link, { color: c.accent }]}>Open full availability ›</Text>
               </Pressable>
-              <Text style={[styles.small, { color: c.textMuted }]}>
-                biralotv does not host or stream this title. Public-domain and Creative Commons films play
-                in-app; everything else opens in your provider app.
-              </Text>
             </View>
           </>
         )}
@@ -275,6 +531,66 @@ const styles = StyleSheet.create({
   cardTitle: {
     fontWeight: '800',
     fontSize: 14,
+  },
+  watchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  epControls: {
+    gap: 8,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  chipRowWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  chipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stepBtn: {
+    borderRadius: 999,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepVal: {
+    fontSize: 13,
+    fontWeight: '800',
+    minWidth: 20,
+    textAlign: 'center',
+  },
+  watchBtn: {
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  streamErrBox: {
+    gap: 6,
+  },
+  streamErrText: {
+    fontSize: 12.5,
   },
   providerRow: {
     flexDirection: 'row',

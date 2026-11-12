@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useLocalStore } from './store';
-import { resolveArchiveStream, type VodItem } from './archive';
+import { resolveArchivePlayback, type VodItem } from './archive';
 import { resolveMsStream } from './media-server';
 import { resolvePlutoStream } from './pluto';
 
@@ -33,6 +33,8 @@ export function sourceLabel(source: string): string {
   }
   if (source === 'mapple-premium') return 'Mapple Premium';
   if (source === 'mapple-sports') return 'Mapple Sports';
+  if (source === 'stream-scraper') return 'Movies';
+  if (source.startsWith('stream-scraper:')) return `Movies · ${source.slice('stream-scraper:'.length)}`;
   return source;
 }
 
@@ -41,18 +43,34 @@ export function initials(name: string): string {
   return clean.slice(0, 1).toUpperCase();
 }
 
+export type OpenPlayerInput = {
+  id: string;
+  name: string;
+  stream?: string;
+  source?: string;
+  logo?: string;
+  hls?: boolean;
+  scraperServer?: string;
+  streamsJson?: string;
+  subtitlesJson?: string;
+  fresh?: boolean;
+};
+
 /** Navigate to the player with full channel info */
-export function openPlayer(ch: { id: string; name: string; stream?: string; source?: string; logo?: string }) {
-  router.push({
-    pathname: '/player',
-    params: {
-      id: ch.id,
-      name: ch.name,
-      stream: ch.stream || '',
-      source: ch.source || '',
-      logo: ch.logo || '',
-    },
-  });
+export function openPlayer(ch: OpenPlayerInput) {
+  const params: Record<string, string> = {
+    id: ch.id,
+    name: ch.name,
+    stream: ch.stream || '',
+    source: ch.source || '',
+    logo: ch.logo || '',
+  };
+  if (ch.hls !== undefined) params.hls = ch.hls ? '1' : '0';
+  if (ch.scraperServer) params.scraperServer = ch.scraperServer;
+  if (ch.streamsJson) params.streamsJson = ch.streamsJson;
+  if (ch.subtitlesJson) params.subtitlesJson = ch.subtitlesJson;
+  if (ch.fresh) params.fresh = '1';
+  router.push({ pathname: '/player', params });
 }
 
 /** Plays in-app when a free copy exists, otherwise opens its detail page. Returns an error message or null. */
@@ -103,14 +121,15 @@ export async function openVodItem(item: VodItem): Promise<string | null> {
   }
   if (!item.identifier) return 'That title is missing its Archive id.';
   try {
-    const stream = await resolveArchiveStream(item.identifier);
-    if (!stream) return `No playable file found for “${item.title}”.`;
+    const resolved = await resolveArchivePlayback(item.identifier);
+    if (!resolved?.stream) return `No playable file found for “${item.title}”.`;
     openPlayer({
       id: item.id,
       name: item.title,
-      stream,
+      stream: resolved.stream,
       source: `archive:${item.identifier}`,
       logo: item.poster ?? '',
+      subtitlesJson: resolved.subtitles.length ? JSON.stringify(resolved.subtitles) : undefined,
     });
     return null;
   } catch (e: unknown) {

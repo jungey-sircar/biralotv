@@ -14,6 +14,8 @@ extraResources:
     to: desktop-web
   - from: build/icon.ico
     to: app-icon.ico
+  - from: ../stream-scraper/stream-scraper-windows-amd64.exe
+    to: stream-scraper.exe
 win:
   icon: build/icon.ico
   target:

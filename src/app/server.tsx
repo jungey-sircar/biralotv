@@ -1,4 +1,5 @@
 import { api, useConfig } from '@/lib/api';
+import { testScraper, useScraperConfig } from '@/lib/scraper';
 import { goBack } from '@/lib/util';
 import { useTheme } from '@/theme';
 import { useState } from 'react';
@@ -7,12 +8,18 @@ import { SafeScreen } from '@/components/SafeScreen';
 
 export default function ServerSettings() {
   const server = useConfig(s => s.server);
+  const scraperCfg = useScraperConfig();
   const { colors: c } = useTheme();
   const [value, setValue] = useState<string | null>(null);
   const saved = value ?? server;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ok, setOk] = useState<string | null>(null);
+
+  const [scraperInput, setScraperInput] = useState(scraperCfg.url);
+  const [scraperBusy, setScraperBusy] = useState(false);
+  const [scraperOk, setScraperOk] = useState('');
+  const [scraperErr, setScraperErr] = useState('');
 
   async function saveAndCheck() {
     if (!saved.trim()) {
@@ -33,6 +40,21 @@ export default function ServerSettings() {
     }
   }
 
+  async function saveAndCheckScraper() {
+    setScraperBusy(true);
+    setScraperOk('');
+    setScraperErr('');
+    try {
+      scraperCfg.setUrl(scraperInput);
+      const info = await testScraper(scraperInput);
+      setScraperOk(info);
+    } catch (e: unknown) {
+      setScraperErr(e instanceof Error ? e.message : 'Could not reach stream-scraper');
+    } finally {
+      setScraperBusy(false);
+    }
+  }
+
   function triggerScrape(source: string) {
     api.scrapeStart(source, true).catch(() => {});
   }
@@ -50,7 +72,7 @@ export default function ServerSettings() {
 
         {/* address card */}
         <View style={[styles.card, { backgroundColor: c.surface }]}>
-          <Text style={[styles.label, { color: c.textMuted }]}>BACKEND ADDRESS</Text>
+          <Text style={[styles.label, { color: c.textMuted }]}>BACKEND ADDRESS (LIVE TV)</Text>
           <TextInput
             value={saved}
             onChangeText={setValue}
@@ -70,6 +92,36 @@ export default function ServerSettings() {
           </Pressable>
           {ok ? <Text style={styles.okText}>{ok}</Text> : null}
           {error ? <Text style={[styles.errText, { color: c.danger }]}>{error}</Text> : null}
+        </View>
+
+        {/* movie scraper card */}
+        <View style={[styles.card, { backgroundColor: c.surface }]}>
+          <Text style={[styles.label, { color: c.textMuted }]}>MOVIE SCRAPER (STREAM-SCRAPER)</Text>
+          <Text style={[styles.cardDesc, { color: c.textMuted }]}>
+            Leave empty to auto-detect Desktop built-in or local scraper; set a LAN IP for phones.
+          </Text>
+          <TextInput
+            value={scraperInput}
+            onChangeText={setScraperInput}
+            placeholder="Auto-detect (or http://192.168.1.10:8080)"
+            placeholderTextColor={c.textMuted}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={[styles.addressInput, { color: c.text }]}
+          />
+          <Pressable
+            onPress={() => void saveAndCheckScraper()}
+            disabled={scraperBusy}
+            style={({ pressed }) => [
+              styles.saveBtn,
+              { backgroundColor: pressed || scraperBusy ? c.elevated : c.accent },
+            ]}
+          >
+            {scraperBusy ? <ActivityIndicator size="small" color="#fff" /> : null}
+            <Text style={styles.saveBtnText}>Save & test scraper</Text>
+          </Pressable>
+          {scraperOk ? <Text style={styles.okText}>{scraperOk}</Text> : null}
+          {scraperErr ? <Text style={[styles.errText, { color: c.danger }]}>{scraperErr}</Text> : null}
         </View>
 
         {/* scrape card */}

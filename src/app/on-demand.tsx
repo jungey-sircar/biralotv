@@ -6,20 +6,36 @@ import { VodCard } from '@/components/vod-card';
 import { ARCHIVE_SCOPES, searchArchive, type ArchiveScope, type VodItem } from '@/lib/archive';
 import { msBrowse, useMsConfigured } from '@/lib/media-server';
 import { plutoBrowse } from '@/lib/pluto';
-import { tmdbDiscover, tmdbSearch } from '@/lib/tmdb';
-import { useSettings, useTheme } from '@/theme';
+import { discoverScraperBase } from '@/lib/scraper';
+import {
+  tmdbDiscover,
+  tmdbLatestMovies,
+  tmdbMovieList,
+  tmdbSearch,
+  tmdbSearchMovies,
+  type TmdbMovieListKind,
+} from '@/lib/tmdb';
+import { useTheme } from '@/theme';
 import { goBack, openVodItem } from '@/lib/util';
 
 type Tab = {
   key: string;
   label: string;
   scope?: ArchiveScope;
+  movieList?: TmdbMovieListKind;
   tmdbKind?: 'movie' | 'tv';
   server?: boolean;
   pluto?: 'vod' | 'live';
 };
 
 const SERVER_TAB: Tab = { key: 'server', label: 'My Library', server: true };
+
+const MOVIE_TABS: Tab[] = [
+  { key: 'latest-movies', label: 'Latest Movies', movieList: 'now_playing' },
+  { key: 'trending-movies', label: 'Trending', movieList: 'trending' },
+  { key: 'popular-movies', label: 'Popular', movieList: 'popular' },
+  { key: 'top-rated-movies', label: 'Top Rated', movieList: 'top_rated' },
+];
 
 const PLUTO_TABS: Tab[] = [
   { key: 'pluto-vod', label: 'Pluto Films', pluto: 'vod' },
@@ -29,38 +45,62 @@ const PLUTO_TABS: Tab[] = [
 const ARCHIVE_TABS: Tab[] = ARCHIVE_SCOPES.map(s => ({ key: s.key, label: s.label, scope: s }));
 
 const TMDB_TABS: Tab[] = [
-  { key: 'tmdb-films', label: 'Films+', tmdbKind: 'movie' },
   { key: 'tmdb-anime', label: 'Anime+', tmdbKind: 'tv' },
 ];
 
 export default function OnDemand() {
   const params = useLocalSearchParams<{ scope?: string; query?: string }>();
   const { colors: c } = useTheme();
-  const tmdbKey = useSettings(s => s.tmdbKey);
   const hasServer = useMsConfigured();
 
   const tabs = useMemo<Tab[]>(
-    () => [...(hasServer ? [SERVER_TAB] : []), ...ARCHIVE_TABS, ...PLUTO_TABS, ...TMDB_TABS],
+    () => [...(hasServer ? [SERVER_TAB] : []), ...MOVIE_TABS, ...ARCHIVE_TABS, ...PLUTO_TABS, ...TMDB_TABS],
     [hasServer],
   );
 
-  const [scopeKey, setScopeKey] = useState(() => {
-    const wanted = params.scope ?? 'films';
-    return tabs.some(t => t.key === wanted) ? wanted : 'films';
-  });
+  const paramScope = params.scope === 'tmdb-films' ? 'popular-movies' : params.scope;
+  const [selection, setSelection] = useState<{ forParam: string | undefined; key: string }>(() => ({
+    forParam: paramScope,
+    key: paramScope && tabs.some(t => t.key === paramScope) ? paramScope : 'latest-movies',
+  }));
+  const candidateScope =
+    selection.forParam === paramScope
+      ? selection.key
+      : paramScope && tabs.some(t => t.key === paramScope)
+        ? paramScope
+        : 'latest-movies';
+  const scopeKey = tabs.some(t => t.key === candidateScope) ? candidateScope : tabs[0].key;
+  const setScopeKey = useCallback(
+    (key: string) => setSelection({ forParam: paramScope, key }),
+    [paramScope],
+  );
   const [searchInput, setSearchInput] = useState(params.query ?? '');
   const [q, setQ] = useState(params.query ?? '');
   const [items, setItems] = useState<VodItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [busyId, setBusyId] = useState('');
+  const [scraperReady, setScraperReady] = useState<boolean | null>(null);
   const [error, setError] = useState('');
   const page = useRef(1);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const PAGE_SIZE = 21;
+  const PAGE_SIZE = 20;
 
   const tab = useMemo(() => tabs.find(t => t.key === scopeKey) ?? tabs[0], [tabs, scopeKey]);
-  const needsKey = !!tab.tmdbKind && !tmdbKey.trim();
+
+  useEffect(() => {
+    let alive = true;
+    discoverScraperBase({ probe: true })
+      .then(u => {
+        if (alive) setScraperReady(Boolean(u));
+      })
+      .catch(() => {
+        if (alive) setScraperReady(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (timer.current) clearTimeout(timer.current);
@@ -73,6 +113,11 @@ export default function OnDemand() {
   const fetchPage = useCallback(async (target: Tab, query: string): Promise<VodItem[]> => {
     if (target.server) return msBrowse({ query, page: page.current });
     if (target.pluto) return plutoBrowse({ kind: target.pluto, query, page: page.current, pageSize: PAGE_SIZE });
+    if (target.movieList) {
+      if (query.trim()) return tmdbSearchMovies(query, page.current);
+      if (target.movieList === 'now_playing') return tmdbLatestMovies(page.current);
+      return tmdbMovieList(target.movieList, page.current);
+    }
     if (target.tmdbKind && query.trim()) return tmdbSearch(query, page.current);
     if (target.tmdbKind) {
       return tmdbDiscover({
@@ -93,7 +138,7 @@ export default function OnDemand() {
         if (replace) page.current = 1;
         const batch = await fetchPage(tab, q);
         setItems(prev => (replace ? batch : merge(prev, batch)));
-        if (batch.length < PAGE_SIZE) page.current = -1;
+        if (batch.length < Math.min(PAGE_SIZE, 16)) page.current = -1;
         else page.current += 1;
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'could not load titles');
@@ -106,10 +151,9 @@ export default function OnDemand() {
   );
 
   useEffect(() => {
-    if (needsKey) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load(true);
-  }, [load, needsKey]);
+  }, [load]);
 
   async function openItem(item: VodItem) {
     setBusyId(item.id);
@@ -127,6 +171,8 @@ export default function OnDemand() {
     void load(false);
   }
 
+  const isScraperShelf = Boolean(tab.movieList || tab.tmdbKind);
+
   return (
     <SafeScreen>
       <View style={styles.headerArea}>
@@ -140,7 +186,13 @@ export default function OnDemand() {
           <TextInput
             value={searchInput}
             onChangeText={setSearchInput}
-            placeholder={tab.server ? 'Search your library…' : tab.tmdbKind ? 'Search any title…' : 'Search free films…'}
+            placeholder={
+              tab.server
+                ? 'Search your library…'
+                : isScraperShelf
+                  ? 'Search latest movies & shows…'
+                  : 'Search free films…'
+            }
             placeholderTextColor={c.textMuted}
             style={[styles.searchInput, { color: c.text }]}
             autoCorrect={false}
@@ -163,28 +215,23 @@ export default function OnDemand() {
             />
           )}
         />
-        <Text style={[styles.note, { color: c.textMuted }]}>
-          {hasServer
-            ? 'My Library plays straight from your own server. The other shelves are public-domain and Creative Commons films.'
-            : 'Free titles are public-domain and Creative Commons works. Add a TMDB key or your own media server in Settings for the full catalogue.'}
-        </Text>
+        <Pressable
+          disabled={!isScraperShelf || scraperReady !== false}
+          onPress={() => router.push('/settings')}
+        >
+          <Text style={[styles.note, { color: c.textMuted }]}>
+            {tab.server
+              ? 'My Library plays straight from your Jellyfin, Emby or Plex server.'
+              : isScraperShelf
+                ? scraperReady === false
+                  ? 'Tap a movie to view details. Connect stream-scraper in Settings to stream in-app.'
+                  : 'Tap any movie to stream via stream-scraper, watch trailers, or check availability.'
+                : 'Public-domain, Creative Commons, and Pluto TV shelves play straight in-app.'}
+          </Text>
+        </Pressable>
       </View>
 
-      {needsKey ? (
-        <View style={styles.center}>
-          <Text style={[styles.emptyTitle, { color: c.text }]}>Search the whole catalogue</Text>
-          <Text style={[styles.emptyDesc, { color: c.textMuted }]}>
-            Films+ and Anime+ cover every title, including this year&apos;s releases. Add your own free
-            TMDB API key and biralotv will show where each one is legally streaming.
-          </Text>
-          <Pressable
-            onPress={() => router.push('/settings')}
-            style={({ pressed }) => [styles.cta, { backgroundColor: pressed ? c.elevated : c.accent }]}
-          >
-            <Text style={styles.ctaText}>Add TMDB key</Text>
-          </Pressable>
-        </View>
-      ) : loading ? (
+      {loading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color={c.accent} />
         </View>

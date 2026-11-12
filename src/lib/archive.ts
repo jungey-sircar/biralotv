@@ -1,4 +1,5 @@
 import type { Channel } from './api';
+import type { SubtitleTrackItem } from './subtitles';
 
 const BASE = 'https://archive.org';
 const PLAYABLE = 'mediatype:(movies) AND format:("h.264") AND NOT collection:("no-preview")';
@@ -136,7 +137,12 @@ export async function searchArchive(opts: {
 
 type MetaFile = { name?: string; format?: string; size?: string };
 
-const cache = new Map<string, Promise<string | null>>();
+export type ArchiveResolution = {
+  stream: string;
+  subtitles: SubtitleTrackItem[];
+};
+
+const cache = new Map<string, Promise<ArchiveResolution | null>>();
 
 function pickVideo(files: MetaFile[]): string | undefined {
   const mp4s = files.filter(
@@ -151,20 +157,99 @@ function pickVideo(files: MetaFile[]): string | undefined {
   return bySize[0]?.name;
 }
 
-export function resolveArchiveStream(identifier: string): Promise<string | null> {
+const ARCHIVE_LANG_NAMES: Record<string, string> = {
+  en: 'English',
+  eng: 'English',
+  es: 'Spanish',
+  spa: 'Spanish',
+  fr: 'French',
+  fre: 'French',
+  fra: 'French',
+  de: 'German',
+  deu: 'German',
+  ger: 'German',
+  it: 'Italian',
+  ita: 'Italian',
+  pt: 'Portuguese',
+  por: 'Portuguese',
+  ja: 'Japanese',
+  jpn: 'Japanese',
+  ko: 'Korean',
+  kor: 'Korean',
+  ar: 'Arabic',
+  ara: 'Arabic',
+  hi: 'Hindi',
+  hin: 'Hindi',
+  ru: 'Russian',
+  rus: 'Russian',
+};
+
+function guessArchiveSubLang(fileName: string): { language: string; label: string } {
+  const stem = fileName.replace(/\.(vtt|srt)$/i, '');
+  const m = stem.match(/[._-]([a-z]{2,3})$/i);
+  const raw = m?.[1]?.toLowerCase() ?? '';
+  if (raw && ARCHIVE_LANG_NAMES[raw]) {
+    const code = raw.length === 3 ? raw.slice(0, 2) : raw;
+    return { language: code, label: ARCHIVE_LANG_NAMES[raw] };
+  }
+  return { language: 'en', label: 'Subtitles (Archive)' };
+}
+
+function pickSubtitles(dir: string, files: MetaFile[]): SubtitleTrackItem[] {
+  const subFiles = files.filter(
+    f =>
+      typeof f.name === 'string' &&
+      /\.(vtt|srt)$/i.test(f.name) &&
+      !f.name.startsWith('.') &&
+      !/_files\.xml$/i.test(f.name),
+  );
+  if (subFiles.length === 0) return [];
+  // Prefer .vtt over .srt when matching the same base stem.
+  const vttStems = new Set(
+    subFiles.filter(f => /\.vtt$/i.test(f.name as string)).map(f => (f.name as string).replace(/\.vtt$/i, '')),
+  );
+  const encodedDir = encodeURIComponent(dir);
+  const out: SubtitleTrackItem[] = [];
+  for (const f of subFiles) {
+    const name = f.name as string;
+    const isSrt = /\.srt$/i.test(name);
+    if (isSrt && vttStems.has(name.replace(/\.srt$/i, ''))) continue;
+    const { language, label } = guessArchiveSubLang(name);
+    const labelWithIndex = out.some(t => t.label === label) ? `${label} (${out.length + 1})` : label;
+    out.push({
+      id: `archive:${name}`,
+      language,
+      label: labelWithIndex,
+      format: isSrt ? 'srt' : 'vtt',
+      url: `${BASE}/download/${encodedDir}/${encodeURIComponent(name)}`,
+      source: 'archive',
+    });
+  }
+  return out;
+}
+
+export function resolveArchivePlayback(identifier: string): Promise<ArchiveResolution | null> {
   const hit = cache.get(identifier);
   if (hit) return hit;
   const pending = (async () => {
     const meta = await getJson<{ dir?: string; files?: MetaFile[] }>(
       `${BASE}/metadata/${encodeURIComponent(identifier)}`,
     );
-    const file = pickVideo(meta.files ?? []);
+    const files = meta.files ?? [];
+    const file = pickVideo(files);
     if (!file || !meta.dir) return null;
     const dir = meta.dir.replace(/^\/\d+\/items\//, '');
-    return `${BASE}/download/${encodeURIComponent(dir)}/${encodeURIComponent(file)}`;
+    return {
+      stream: `${BASE}/download/${encodeURIComponent(dir)}/${encodeURIComponent(file)}`,
+      subtitles: pickSubtitles(dir, files),
+    };
   })();
   cache.set(identifier, pending);
   return pending;
+}
+
+export function resolveArchiveStream(identifier: string): Promise<string | null> {
+  return resolveArchivePlayback(identifier).then(res => res?.stream ?? null);
 }
 
 export function vodItemToChannel(item: VodItem, stream: string): Channel {
