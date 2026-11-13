@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { SafeScreen } from '@/components/SafeScreen';
 import { ChannelRow } from '@/components/row';
@@ -21,6 +22,8 @@ import { filterAdult, useSettings, useTheme } from '@/theme';
 
 const FEATURED_NAMES = ['News', 'Movies', 'Kids', 'Music', 'Sports'];
 const COUNTRY_CODES = ['us', 'gb', 'de'];
+const HEADER_LOGO_DARK = require('../../assets/images/biralotv-horizontal.png');
+const HEADER_LOGO_LIGHT = require('../../assets/images/biralotv-horizontal-light.png');
 const HEADER_LINKS = [
   { key: 'latest-movies', label: 'Latest Movies', onPress: () => router.push({ pathname: '/on-demand', params: { scope: 'latest-movies' } }) },
   { key: 'on-demand', label: 'On Demand', onPress: () => router.push('/on-demand') },
@@ -48,7 +51,7 @@ async function loadSection(
 }
 
 function Home() {
-  const { colors } = useTheme();
+  const { colors, dark } = useTheme();
   const showAdult = useSettings(s => s.showAdult);
   const hasServer = useMsConfigured();
   const [sections, setSections] = useState<Section[]>([]);
@@ -130,7 +133,12 @@ function Home() {
   const headerView = (
     <View style={styles.header}>
       <View style={styles.headerRow}>
-        <Text style={[styles.title, { color: colors.text }]}>biraloTV</Text>
+        <Image
+          source={dark ? HEADER_LOGO_DARK : HEADER_LOGO_LIGHT}
+          style={styles.brandLogo}
+          contentFit="contain"
+          accessibilityLabel="BiraloTV"
+        />
         <Text style={[styles.subtitle, { color: colors.textMuted }]}>
           Live TV from iptv-org, plus latest movies and free films on demand
         </Text>
@@ -258,10 +266,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
-  title: {
-    fontSize: 32,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+  brandLogo: {
+    width: 216,
+    height: 56,
+    marginBottom: 4,
   },
   subtitle: {
     marginTop: 4,

@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import { Animated, Easing, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Animated, Easing, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useTheme } from '@/theme';
 
 const FRAMES = [
@@ -9,6 +9,8 @@ const FRAMES = [
   require('../../assets/images/running-cat-3.png'),
   require('../../assets/images/running-cat-4.png'),
 ];
+const LOGO_DARK = require('../../assets/images/biralotv-logo.png');
+const LOGO_LIGHT = require('../../assets/images/biralotv-logo-light.png');
 
 const FRAME_MS = 110;
 const NATIVE_DRIVER = Platform.OS !== 'web';
@@ -19,7 +21,7 @@ type Props = {
 };
 
 export function CatSplash({ running, onFirstFrame }: Props) {
-  const { colors } = useTheme();
+  const { colors, dark } = useTheme();
   const { width, height } = useWindowDimensions();
   const [frame, setFrame] = useState(0);
   const [cross] = useState(() => new Animated.Value(0));
@@ -65,18 +67,23 @@ export function CatSplash({ running, onFirstFrame }: Props) {
     }).start();
   }, [fade, running]);
 
-  const catW = Math.min(320, width * 0.62, height * 0.55);
+  const catW = Math.min(320, width * 0.62, height * 0.44);
   const catH = catW * 0.75;
+  const logoW = Math.min(268, width * 0.62, height * 0.34);
+  const logoH = logoW * (552 / 702);
 
   return (
     <Animated.View
       pointerEvents="none"
       style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg, opacity: fade }]}
     >
-      <View style={[styles.brand, { top: height * 0.3 }]}>
-        <Text style={[styles.title, { color: colors.text }]}>
-          biralo<Text style={{ color: colors.accent }}>tv</Text>
-        </Text>
+      <View style={[styles.brand, { top: Math.max(24, height * 0.14) }]}>
+        <Image
+          source={dark ? LOGO_DARK : LOGO_LIGHT}
+          style={{ width: logoW, height: logoH }}
+          contentFit="contain"
+          accessibilityLabel="BiraloTV"
+        />
         <View style={styles.dots}>
           {FRAMES.map((_, i) => (
             <View
@@ -93,7 +100,7 @@ export function CatSplash({ running, onFirstFrame }: Props) {
             width: catW,
             height: catH,
             left: -catW,
-            bottom: height * 0.14,
+            bottom: height * 0.11,
             transform: [
               { translateX: cross.interpolate({ inputRange: [0, 1], outputRange: [0, width + catW * 2] }) },
               { translateY: bob },
@@ -115,7 +122,6 @@ export function CatSplash({ running, onFirstFrame }: Props) {
 
 const styles = StyleSheet.create({
   brand: { position: 'absolute', alignSelf: 'center', alignItems: 'center' },
-  title: { fontSize: 34, fontWeight: '800', letterSpacing: 1.5 },
   dots: { flexDirection: 'row', marginTop: 14 },
   dot: { width: 7, height: 7, borderRadius: 4, marginHorizontal: 4 },
   cat: { position: 'absolute' },

@@ -1,4 +1,5 @@
 import { api, useConfig, apiBase } from '@/lib/api';
+import { Image } from 'expo-image';
 import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, Text, TextInput, View, StyleSheet } from 'react-native';
 import { useTheme } from '@/theme';
@@ -6,9 +7,12 @@ import { router } from 'expo-router';
 import { SafeScreen } from '@/components/SafeScreen';
 import * as Device from 'expo-device';
 
+const SETUP_LOGO_DARK = require('../../assets/images/biralotv-logo.png');
+const SETUP_LOGO_LIGHT = require('../../assets/images/biralotv-logo-light.png');
+
 export default function Setup() {
   const current = useConfig(s => s.server);
-  const { colors: c } = useTheme();
+  const { colors: c, dark } = useTheme();
   const isEmulator = Platform.OS === 'android' && !Device.isDevice;
   const [value, setValue] = useState<string | null>(
     isEmulator ? 'http://10.0.2.2:8080' : null,
@@ -42,7 +46,12 @@ export default function Setup() {
         behavior={Platform.OS === 'android' ? undefined : 'padding'}
         style={styles.container}
       >
-        <Text style={[styles.title, { color: c.text }]}>biralotv</Text>
+        <Image
+          source={dark ? SETUP_LOGO_DARK : SETUP_LOGO_LIGHT}
+          style={styles.logo}
+          contentFit="contain"
+          accessibilityLabel="BiraloTV"
+        />
         <Text style={[styles.subtitle, { color: c.textSecondary }]}>
           Enter your biralo backend address (Go server). Everything stays local.
         </Text>
@@ -105,10 +114,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 16,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '800',
-    textAlign: 'center',
+  logo: {
+    width: 196,
+    height: 154,
+    alignSelf: 'center',
   },
   subtitle: {
     textAlign: 'center',
