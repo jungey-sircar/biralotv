@@ -23,14 +23,21 @@ expo-env.d.ts
 # Metro
 .metro-health-check*
 
-# debug
+# debug & logs
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+*.log
+*.log.*
+*-log.txt
+build-log.txt
+gradle-cat.log
+session-*.md
 
-# macOS
+# macOS & OS
 .DS_Store
 *.pem
+Thumbs.db
 
 # local env files
 .env*.local
@@ -48,3 +55,7 @@ example
 build-artifacts/*.apk
 /desktop-web/
 /desktop-build/
+
+# stream scraper
+stream-scraper/
+streamscraper/
