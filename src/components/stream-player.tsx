@@ -26,6 +26,8 @@ type Props = {
   selectedSubtitleId?: string | null;
   subtitleOffsetSec?: number;
   subtitleSize?: SubtitleTextSize;
+  initialPosition?: number;
+  onProgress?: (progress: { position: number; duration: number }) => void;
   onNativeSubtitleSelect?: (track: SubtitleTrackItem | null) => void;
   onSubtitleError?: (message: string) => void;
   onError?: (message: string) => void;
@@ -74,19 +76,22 @@ export function StreamPlayer({
   selectedSubtitleId,
   subtitleOffsetSec = 0,
   subtitleSize = 'medium',
+  initialPosition = 0,
+  onProgress,
   onNativeSubtitleSelect,
   onSubtitleError,
   onError,
   style,
 }: Props) {
   const player = useVideoPlayer(null, p => {
-    p.timeUpdateEventInterval = 0.2;
+    p.timeUpdateEventInterval = 0.5;
   });
   const triedFallbackRef = useRef(false);
   const currentStreamRef = useRef<string | null>(null);
   const onErrorRef = useRef(onError);
   const onSubErrRef = useRef(onSubtitleError);
   const onNativeSubRef = useRef(onNativeSubtitleSelect);
+  const onProgressRef = useRef(onProgress);
   const subtitlesRef = useRef<SubtitleTrackItem[]>(subtitles ?? []);
   const programmaticSubRef = useRef(false);
   const usingNativeTrackRef = useRef(false);
@@ -116,6 +121,10 @@ export function StreamPlayer({
   useEffect(() => {
     onNativeSubRef.current = onNativeSubtitleSelect;
   }, [onNativeSubtitleSelect]);
+
+  useEffect(() => {
+    onProgressRef.current = onProgress;
+  }, [onProgress]);
 
   useEffect(() => {
     subtitlesRef.current = subtitles ?? [];
@@ -192,6 +201,7 @@ export function StreamPlayer({
   });
 
   useEventListener(player, 'timeUpdate', ({ currentTime }) => {
+    onProgressRef.current?.({ position: currentTime, duration: player.duration || 0 });
     if (!needsOverlayTicksRef.current) return;
     const uri = currentStreamRef.current ?? '';
     if (!uri) return;
@@ -221,7 +231,13 @@ export function StreamPlayer({
     player
       .replaceAsync(source)
       .then(() => {
-        if (alive) player.play();
+        if (!alive) return;
+        if (initialPosition && initialPosition > 0) {
+          try {
+            player.currentTime = initialPosition;
+          } catch {}
+        }
+        player.play();
       })
       .catch((e: unknown) => {
         if (alive) onErrorRef.current?.(e instanceof Error ? e.message : 'Playback failed.');
@@ -229,7 +245,7 @@ export function StreamPlayer({
     return () => {
       alive = false;
     };
-  }, [stream, isHls, title, artwork, player]);
+  }, [stream, isHls, title, artwork, player, initialPosition]);
 
   const offsetIsZero = Math.abs(subtitleOffsetSec ?? 0) < 0.05;
   const nativeMatch = useMemo(

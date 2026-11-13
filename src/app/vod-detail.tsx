@@ -23,6 +23,7 @@ import {
   type TmdbEpisodeSummary,
 } from '@/lib/tmdb';
 import { useTheme } from '@/theme';
+import { useLocalStore } from '@/lib/store';
 import { goBack, openPlayer } from '@/lib/util';
 
 export default function VodDetail() {
@@ -43,6 +44,15 @@ export default function VodDetail() {
   const [resolving, setResolving] = useState(false);
   const [streamError, setStreamError] = useState('');
   const [needsScraperSetup, setNeedsScraperSetup] = useState(false);
+
+  const inList = useLocalStore(s => (data ? s.inWatchlist(data.item.id) : false));
+  const currentMediaId = kind === 'tv' ? `scraper:tv:${id}:${season}:${episode}` : `scraper:movie:${id}`;
+  const savedProgress = useLocalStore(s =>
+    s.continueWatching.find(c => c.id === currentMediaId),
+  );
+  const toggleList = () => {
+    if (data?.item) useLocalStore.getState().toggleWatchlist(data.item);
+  };
 
   const load = useCallback(async () => {
     if (!id) {
@@ -112,7 +122,7 @@ export default function VodDetail() {
     .filter(Boolean)
     .join(' · ');
 
-  async function watchNow() {
+  async function watchNow(resumePos?: number) {
     if (!id || resolving) return;
     setResolving(true);
     setStreamError('');
@@ -140,6 +150,7 @@ export default function VodDetail() {
         streamsJson: JSON.stringify(variants),
         subtitlesJson: res.subtitles?.length ? JSON.stringify(res.subtitles) : undefined,
         fresh: true,
+        resumePos,
       });
     } catch (e: unknown) {
       if (e instanceof ScraperError && e.code === 'NO_SCRAPER') {
@@ -346,23 +357,54 @@ export default function VodDetail() {
                 })}
               </View>
 
-              <Pressable
-                onPress={() => void watchNow()}
-                disabled={resolving}
-                style={({ pressed }) => [
-                  styles.watchBtn,
-                  { backgroundColor: pressed || resolving ? c.elevated : c.accent },
-                ]}
-              >
-                {resolving ? <ActivityIndicator size="small" color="#fff" /> : null}
-                <Text style={styles.buttonText}>
-                  {resolving
-                    ? 'Resolving stream…'
-                    : kind === 'tv'
-                      ? `Watch S${season} E${episode}`
-                      : 'Watch movie'}
-                </Text>
-              </Pressable>
+              <View style={styles.actionButtons}>
+                <Pressable
+                  onPress={() => void watchNow(savedProgress?.position)}
+                  disabled={resolving}
+                  style={({ pressed }) => [
+                    styles.watchBtn,
+                    { backgroundColor: pressed || resolving ? c.elevated : c.accent, flex: 1 },
+                  ]}
+                >
+                  {resolving ? <ActivityIndicator size="small" color="#fff" /> : null}
+                  <Text style={styles.buttonText}>
+                    {resolving
+                      ? 'Resolving stream…'
+                      : savedProgress && savedProgress.position > 15
+                        ? `▶ Resume (${Math.floor(savedProgress.position / 60)}m)`
+                        : kind === 'tv'
+                          ? `▶ Watch S${season} E${episode}`
+                          : '▶ Watch movie'}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={toggleList}
+                  style={({ pressed }) => [
+                    styles.listBtn,
+                    {
+                      backgroundColor: inList ? c.text : c.elevated,
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.listBtnText, { color: inList ? c.bg : c.text }]}>
+                    {inList ? '✓ In My List' : '+ My List'}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {savedProgress && savedProgress.position > 15 ? (
+                <Pressable
+                  onPress={() => void watchNow(0)}
+                  disabled={resolving}
+                  style={styles.restartBtn}
+                >
+                  <Text style={[styles.restartBtnText, { color: c.textMuted }]}>
+                    ↺ Watch from beginning
+                  </Text>
+                </Pressable>
+              ) : null}
 
               {streamError ? (
                 <View style={styles.streamErrBox}>
@@ -585,6 +627,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  listBtn: {
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  restartBtn: {
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restartBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   streamErrBox: {
     gap: 6,

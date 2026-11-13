@@ -130,6 +130,7 @@ function toVod(e: TmdbEntry, kind: 'movie' | 'tv'): VodItem {
     title: e.title || e.name || `TMDB ${e.id}`,
     year: toYear(e.release_date || e.first_air_date),
     poster: poster(e.poster_path),
+    backdrop: poster(e.backdrop_path, 'w780') || poster(e.poster_path, 'w780'),
     overview: e.overview || '',
     source: 'tmdb',
     tmdbId: e.id,
@@ -170,6 +171,74 @@ export async function tmdbTrendingMovies(page = 1): Promise<VodItem[]> {
 
 export async function tmdbPopularMovies(page = 1): Promise<VodItem[]> {
   return tmdbMovieList('popular', page);
+}
+
+export async function tmdbTopRatedMovies(page = 1): Promise<VodItem[]> {
+  return tmdbMovieList('top_rated', page);
+}
+
+export async function tmdbUpcomingMovies(page = 1): Promise<VodItem[]> {
+  return tmdbMovieList('upcoming', page);
+}
+
+export async function tmdbGenreMovies(genreId: number, page = 1): Promise<VodItem[]> {
+  return tmdbDiscover({ kind: 'movie', genre: genreId, page });
+}
+
+export type TmdbTvListKind = 'trending' | 'popular' | 'top_rated' | 'on_the_air' | 'airing_today';
+
+const TV_LIST_PATHS: Record<TmdbTvListKind, string> = {
+  trending: '/trending/tv/week',
+  popular: '/tv/popular',
+  top_rated: '/tv/top_rated',
+  on_the_air: '/tv/on_the_air',
+  airing_today: '/tv/airing_today',
+};
+
+export async function tmdbTvList(kind: TmdbTvListKind, page = 1): Promise<VodItem[]> {
+  const body = await tmdbGet<TmdbPage>(TV_LIST_PATHS[kind], {
+    language: 'en-US',
+    page: String(page),
+  });
+  return (body.results ?? [])
+    .filter(e => (e.title || e.name) && e.poster_path)
+    .map(e => toVod(e, 'tv'));
+}
+
+export async function tmdbTrendingTV(page = 1): Promise<VodItem[]> {
+  return tmdbTvList('trending', page);
+}
+
+export async function tmdbPopularTV(page = 1): Promise<VodItem[]> {
+  return tmdbTvList('popular', page);
+}
+
+export async function tmdbTopRatedTV(page = 1): Promise<VodItem[]> {
+  return tmdbTvList('top_rated', page);
+}
+
+export async function tmdbOnTheAirTV(page = 1): Promise<VodItem[]> {
+  return tmdbTvList('on_the_air', page);
+}
+
+export async function tmdbAiringTodayTV(page = 1): Promise<VodItem[]> {
+  return tmdbTvList('airing_today', page);
+}
+
+export async function tmdbGenreTV(genreId: number, page = 1): Promise<VodItem[]> {
+  return tmdbDiscover({ kind: 'tv', genre: genreId, page });
+}
+
+export async function tmdbSearchTV(query: string, page = 1): Promise<VodItem[]> {
+  const body = await tmdbGet<TmdbPage>('/search/tv', {
+    query,
+    language: 'en-US',
+    page: String(page),
+    include_adult: 'false',
+  });
+  return (body.results ?? [])
+    .filter(e => (e.title || e.name) && (e.poster_path || e.backdrop_path))
+    .map(e => toVod(e, 'tv'));
 }
 
 export async function tmdbSearchMovies(query: string, page = 1): Promise<VodItem[]> {
@@ -314,5 +383,30 @@ export async function tmdbSeasonEpisodes(id: number, season: number): Promise<Tm
 }
 
 export const TMDB_GENRES = {
+  ACTION: 28,
+  ADVENTURE: 12,
+  ANIMATION: 16,
   ANIME: 16,
+  COMEDY: 35,
+  CRIME: 80,
+  DOCUMENTARY: 99,
+  DRAMA: 18,
+  FAMILY: 10751,
+  FANTASY: 14,
+  HORROR: 27,
+  SCIFI: 878,
+  THRILLER: 53,
+} as const;
+
+export const TMDB_TV_GENRES = {
+  ACTION_ADVENTURE: 10759,
+  ANIMATION: 16,
+  COMEDY: 35,
+  CRIME: 80,
+  DOCUMENTARY: 99,
+  DRAMA: 18,
+  FAMILY: 10751,
+  KIDS: 10762,
+  MYSTERY: 9648,
+  SCIFI_FANTASY: 10765,
 } as const;

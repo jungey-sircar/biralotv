@@ -17,6 +17,8 @@ type Props = {
   selectedSubtitleId?: string | null;
   subtitleOffsetSec?: number;
   subtitleSize?: SubtitleTextSize;
+  initialPosition?: number;
+  onProgress?: (progress: { position: number; duration: number }) => void;
   onNativeSubtitleSelect?: (track: SubtitleTrackItem | null) => void;
   onSubtitleError?: (message: string) => void;
   onError?: (message: string) => void;
@@ -34,6 +36,8 @@ export function StreamPlayer({
   selectedSubtitleId,
   subtitleOffsetSec = 0,
   subtitleSize = 'medium',
+  initialPosition = 0,
+  onProgress,
   onSubtitleError,
   onError,
 }: Props) {
@@ -41,6 +45,7 @@ export function StreamPlayer({
   const trackNodesRef = useRef<Map<string, TextTrack>>(new Map());
   const onErrorRef = useRef(onError);
   const onSubErrRef = useRef(onSubtitleError);
+  const onProgressRef = useRef(onProgress);
 
   useEffect(() => {
     onErrorRef.current = onError;
@@ -49,6 +54,10 @@ export function StreamPlayer({
   useEffect(() => {
     onSubErrRef.current = onSubtitleError;
   }, [onSubtitleError]);
+
+  useEffect(() => {
+    onProgressRef.current = onProgress;
+  }, [onProgress]);
 
   const selectedTrack = useMemo(
     () => (selectedSubtitleId ? (subtitles ?? []).find(s => s.id === selectedSubtitleId) ?? null : null),
@@ -100,6 +109,21 @@ export function StreamPlayer({
       typeof MediaSource !== 'undefined' &&
       MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E,mp4a.40.2"');
 
+    const handleTimeUpdate = () => {
+      if (!active) return;
+      onProgressRef.current?.({ position: el.currentTime, duration: el.duration || 0 });
+    };
+    el.addEventListener('timeupdate', handleTimeUpdate);
+
+    const handleLoadedMetadata = () => {
+      if (initialPosition && initialPosition > 0 && el.currentTime < 1) {
+        try {
+          el.currentTime = initialPosition;
+        } catch {}
+      }
+    };
+    el.addEventListener('loadedmetadata', handleLoadedMetadata);
+
     if (wantsHls && mseOk) {
       hls = new HlsLib({
         lowLatencyMode: false,
@@ -114,6 +138,11 @@ export function StreamPlayer({
       hls.attachMedia(el);
       hls.on(Events.MANIFEST_PARSED, () => {
         netRetries = 0;
+        if (initialPosition && initialPosition > 0 && el.currentTime < 1) {
+          try {
+            el.currentTime = initialPosition;
+          } catch {}
+        }
         void el.play().catch(() => {});
       });
       hls.on(Events.ERROR, (_event, data) => {
@@ -147,6 +176,8 @@ export function StreamPlayer({
     return () => {
       active = false;
       el.removeEventListener('error', handleNativeError);
+      el.removeEventListener('timeupdate', handleTimeUpdate);
+      el.removeEventListener('loadedmetadata', handleLoadedMetadata);
       hls?.destroy();
       for (let i = 0; i < el.textTracks.length; i++) {
         el.textTracks[i].mode = 'disabled';
@@ -154,7 +185,7 @@ export function StreamPlayer({
       el.removeAttribute('src');
       el.load();
     };
-  }, [stream, isHls]);
+  }, [stream, isHls, initialPosition]);
 
   useEffect(() => {
     const el = ref.current;

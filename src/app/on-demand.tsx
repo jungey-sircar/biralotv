@@ -13,7 +13,12 @@ import {
   tmdbMovieList,
   tmdbSearch,
   tmdbSearchMovies,
+  tmdbSearchTV,
+  tmdbTvList,
+  TMDB_GENRES,
+  TMDB_TV_GENRES,
   type TmdbMovieListKind,
+  type TmdbTvListKind,
 } from '@/lib/tmdb';
 import { useTheme } from '@/theme';
 import { goBack, openVodItem } from '@/lib/util';
@@ -23,6 +28,8 @@ type Tab = {
   label: string;
   scope?: ArchiveScope;
   movieList?: TmdbMovieListKind;
+  tvList?: TmdbTvListKind;
+  genreId?: number;
   tmdbKind?: 'movie' | 'tv';
   server?: boolean;
   pluto?: 'vod' | 'live';
@@ -30,11 +37,28 @@ type Tab = {
 
 const SERVER_TAB: Tab = { key: 'server', label: 'My Library', server: true };
 
+const TV_TABS: Tab[] = [
+  { key: 'trending-tv', label: 'Trending Series', tvList: 'trending' },
+  { key: 'popular-tv', label: 'Popular Shows', tvList: 'popular' },
+  { key: 'top-rated-tv', label: 'Top Rated TV', tvList: 'top_rated' },
+  { key: 'on-the-air-tv', label: 'Airing Today', tvList: 'on_the_air' },
+  { key: 'action-tv', label: 'Action & Adventure', tmdbKind: 'tv', genreId: TMDB_TV_GENRES.ACTION_ADVENTURE },
+  { key: 'scifi-tv', label: 'Sci-Fi & Fantasy', tmdbKind: 'tv', genreId: TMDB_TV_GENRES.SCIFI_FANTASY },
+  { key: 'drama-tv', label: 'Drama', tmdbKind: 'tv', genreId: TMDB_TV_GENRES.DRAMA },
+  { key: 'comedy-tv', label: 'Comedy TV', tmdbKind: 'tv', genreId: TMDB_TV_GENRES.COMEDY },
+  { key: 'anime-tv', label: 'Anime & Animation', tmdbKind: 'tv', genreId: TMDB_TV_GENRES.ANIMATION },
+];
+
 const MOVIE_TABS: Tab[] = [
   { key: 'latest-movies', label: 'Latest Movies', movieList: 'now_playing' },
   { key: 'trending-movies', label: 'Trending', movieList: 'trending' },
   { key: 'popular-movies', label: 'Popular', movieList: 'popular' },
   { key: 'top-rated-movies', label: 'Top Rated', movieList: 'top_rated' },
+  { key: 'action-movies', label: 'Action Movies', tmdbKind: 'movie', genreId: TMDB_GENRES.ACTION },
+  { key: 'scifi-movies', label: 'Sci-Fi Movies', tmdbKind: 'movie', genreId: TMDB_GENRES.SCIFI },
+  { key: 'comedy-movies', label: 'Comedy Movies', tmdbKind: 'movie', genreId: TMDB_GENRES.COMEDY },
+  { key: 'horror-movies', label: 'Horror Movies', tmdbKind: 'movie', genreId: TMDB_GENRES.HORROR },
+  { key: 'animation-movies', label: 'Animation Movies', tmdbKind: 'movie', genreId: TMDB_GENRES.ANIMATION },
 ];
 
 const PLUTO_TABS: Tab[] = [
@@ -44,31 +68,49 @@ const PLUTO_TABS: Tab[] = [
 
 const ARCHIVE_TABS: Tab[] = ARCHIVE_SCOPES.map(s => ({ key: s.key, label: s.label, scope: s }));
 
-const TMDB_TABS: Tab[] = [
-  { key: 'tmdb-anime', label: 'Anime+', tmdbKind: 'tv' },
-];
-
 export default function OnDemand() {
   const params = useLocalSearchParams<{ scope?: string; query?: string }>();
   const { colors: c } = useTheme();
   const hasServer = useMsConfigured();
 
-  const tabs = useMemo<Tab[]>(
-    () => [...(hasServer ? [SERVER_TAB] : []), ...MOVIE_TABS, ...ARCHIVE_TABS, ...PLUTO_TABS, ...TMDB_TABS],
-    [hasServer],
+  const isTvRequested = Boolean(
+    params.scope &&
+      (params.scope.endsWith('-tv') ||
+        params.scope === 'tv' ||
+        params.scope === 'series' ||
+        params.scope === 'shows'),
   );
 
-  const paramScope = params.scope === 'tmdb-films' ? 'popular-movies' : params.scope;
+  const tabs = useMemo<Tab[]>(() => {
+    const primary = isTvRequested
+      ? [...TV_TABS, ...MOVIE_TABS]
+      : [...MOVIE_TABS, ...TV_TABS];
+    return [
+      ...(hasServer ? [SERVER_TAB] : []),
+      ...primary,
+      ...ARCHIVE_TABS,
+      ...PLUTO_TABS,
+    ];
+  }, [hasServer, isTvRequested]);
+
+  const paramScope = useMemo(() => {
+    if (params.scope === 'tmdb-films') return 'popular-movies';
+    if (params.scope === 'series' || params.scope === 'tv') return 'trending-tv';
+    return params.scope;
+  }, [params.scope]);
+
+  const defaultScope = isTvRequested ? 'trending-tv' : 'latest-movies';
+
   const [selection, setSelection] = useState<{ forParam: string | undefined; key: string }>(() => ({
     forParam: paramScope,
-    key: paramScope && tabs.some(t => t.key === paramScope) ? paramScope : 'latest-movies',
+    key: paramScope && tabs.some(t => t.key === paramScope) ? paramScope : defaultScope,
   }));
   const candidateScope =
     selection.forParam === paramScope
       ? selection.key
       : paramScope && tabs.some(t => t.key === paramScope)
         ? paramScope
-        : 'latest-movies';
+        : defaultScope;
   const scopeKey = tabs.some(t => t.key === candidateScope) ? candidateScope : tabs[0].key;
   const setScopeKey = useCallback(
     (key: string) => setSelection({ forParam: paramScope, key }),
@@ -118,11 +160,31 @@ export default function OnDemand() {
       if (target.movieList === 'now_playing') return tmdbLatestMovies(page.current);
       return tmdbMovieList(target.movieList, page.current);
     }
-    if (target.tmdbKind && query.trim()) return tmdbSearch(query, page.current);
+    if (target.tvList) {
+      if (query.trim()) return tmdbSearchTV(query, page.current);
+      return tmdbTvList(target.tvList, page.current);
+    }
+    if (target.genreId && target.tmdbKind) {
+      if (query.trim()) {
+        return target.tmdbKind === 'tv'
+          ? tmdbSearchTV(query, page.current)
+          : tmdbSearchMovies(query, page.current);
+      }
+      return tmdbDiscover({
+        kind: target.tmdbKind,
+        genre: target.genreId,
+        page: page.current,
+      });
+    }
+    if (target.tmdbKind && query.trim()) {
+      return target.tmdbKind === 'tv'
+        ? tmdbSearchTV(query, page.current)
+        : tmdbSearch(query, page.current);
+    }
     if (target.tmdbKind) {
       return tmdbDiscover({
         kind: target.tmdbKind,
-        genre: target.tmdbKind === 'tv' ? 16 : undefined,
+        genre: target.genreId,
         page: page.current,
       });
     }
@@ -171,7 +233,9 @@ export default function OnDemand() {
     void load(false);
   }
 
-  const isScraperShelf = Boolean(tab.movieList || tab.tmdbKind);
+  const isTvShelf = Boolean(tab.tvList || tab.tmdbKind === 'tv');
+  const isMovieShelf = Boolean(tab.movieList || tab.tmdbKind === 'movie');
+  const isScraperShelf = isTvShelf || isMovieShelf;
 
   return (
     <SafeScreen>
@@ -180,7 +244,9 @@ export default function OnDemand() {
           <Pressable onPress={() => goBack()} hitSlop={12}>
             <Text style={[styles.backText, { color: c.text }]}>‹</Text>
           </Pressable>
-          <Text style={[styles.headerTitle, { color: c.text }]}>On Demand</Text>
+          <Text style={[styles.headerTitle, { color: c.text }]}>
+            {isTvShelf ? 'TV Shows & Series' : 'On Demand'}
+          </Text>
         </View>
         <View style={[styles.searchBox, { backgroundColor: c.surface }]}>
           <TextInput
@@ -189,9 +255,11 @@ export default function OnDemand() {
             placeholder={
               tab.server
                 ? 'Search your library…'
-                : isScraperShelf
-                  ? 'Search latest movies & shows…'
-                  : 'Search free films…'
+                : isTvShelf
+                  ? 'Search TV series & shows…'
+                  : isMovieShelf
+                    ? 'Search latest movies…'
+                    : 'Search free films…'
             }
             placeholderTextColor={c.textMuted}
             style={[styles.searchInput, { color: c.text }]}
@@ -222,11 +290,15 @@ export default function OnDemand() {
           <Text style={[styles.note, { color: c.textMuted }]}>
             {tab.server
               ? 'My Library plays straight from your Jellyfin, Emby or Plex server.'
-              : isScraperShelf
+              : isTvShelf
                 ? scraperReady === false
-                  ? 'Tap a movie to view details. Connect stream-scraper in Settings to stream in-app.'
-                  : 'Tap any movie to stream via stream-scraper, watch trailers, or check availability.'
-                : 'Public-domain, Creative Commons, and Pluto TV shelves play straight in-app.'}
+                  ? 'Tap a TV show to select seasons & episodes. Connect stream-scraper in Settings to stream in-app.'
+                  : 'Tap any TV show to select seasons & episodes, stream via scraper, or watch trailers.'
+                : isMovieShelf
+                  ? scraperReady === false
+                    ? 'Tap a movie to view details. Connect stream-scraper in Settings to stream in-app.'
+                    : 'Tap any movie to stream via stream-scraper, watch trailers, or check availability.'
+                  : 'Public-domain, Creative Commons, and Pluto TV shelves play straight in-app.'}
           </Text>
         </Pressable>
       </View>

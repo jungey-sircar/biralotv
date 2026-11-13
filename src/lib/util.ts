@@ -54,6 +54,7 @@ export type OpenPlayerInput = {
   streamsJson?: string;
   subtitlesJson?: string;
   fresh?: boolean;
+  resumePos?: number;
 };
 
 /** Navigate to the player with full channel info */
@@ -70,6 +71,7 @@ export function openPlayer(ch: OpenPlayerInput) {
   if (ch.streamsJson) params.streamsJson = ch.streamsJson;
   if (ch.subtitlesJson) params.subtitlesJson = ch.subtitlesJson;
   if (ch.fresh) params.fresh = '1';
+  if (ch.resumePos && ch.resumePos > 0) params.resumePos = String(Math.round(ch.resumePos));
   router.push({ pathname: '/player', params });
 }
 

@@ -1,194 +1,311 @@
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Image } from 'expo-image';
 import { router, useFocusEffect } from 'expo-router';
 import { SafeScreen } from '@/components/SafeScreen';
-import { ChannelRow } from '@/components/row';
 import { ScreenError } from '@/components/screen-error';
 import { VodRow } from '@/components/vod-row';
-import type { Channel } from '@/lib/api';
+import { NetflixHero } from '@/components/netflix-hero';
+import { ContinueWatchingRow } from '@/components/continue-watching-row';
 import { searchArchive, type VodItem } from '@/lib/archive';
 import { msBrowse, useMsConfigured } from '@/lib/media-server';
-import { tmdbLatestMovies, tmdbTrendingMovies } from '@/lib/tmdb';
-import { openVodItem } from '@/lib/util';
-import { useLocalStore } from '@/lib/store';
 import {
-  IPTV_CATEGORIES,
-  POPULAR_COUNTRIES,
-  fetchCategoryChannels,
-  fetchCountryChannels,
-} from '@/lib/iptv';
-import { filterAdult, useSettings, useTheme } from '@/theme';
+  tmdbGenreMovies,
+  tmdbGenreTV,
+  tmdbLatestMovies,
+  tmdbOnTheAirTV,
+  tmdbPopularMovies,
+  tmdbPopularTV,
+  tmdbTopRatedMovies,
+  tmdbTopRatedTV,
+  tmdbTrendingMovies,
+  tmdbTrendingTV,
+  TMDB_GENRES,
+  TMDB_TV_GENRES,
+} from '@/lib/tmdb';
+import { openVodItem } from '@/lib/util';
+import { useLocalStore, watchlistItemToVod } from '@/lib/store';
+import { useTheme } from '@/theme';
 
-const FEATURED_NAMES = ['News', 'Movies', 'Kids', 'Music', 'Sports'];
-const COUNTRY_CODES = ['us', 'gb', 'de'];
 const HEADER_LOGO_DARK = require('../../assets/images/biralotv-horizontal.png');
 const HEADER_LOGO_LIGHT = require('../../assets/images/biralotv-horizontal-light.png');
-const HEADER_LINKS = [
-  { key: 'latest-movies', label: 'Latest Movies', onPress: () => router.push({ pathname: '/on-demand', params: { scope: 'latest-movies' } }) },
-  { key: 'on-demand', label: 'On Demand', onPress: () => router.push('/on-demand') },
-  { key: 'browse', label: 'Live TV', onPress: () => router.push('/browse') },
-  { key: 'search', label: 'Search TV', onPress: () => router.push('/channel-search') },
-  { key: 'playlists', label: 'Playlists', onPress: () => router.push('/playlists') },
-  { key: 'settings', label: 'Settings', onPress: () => router.push('/settings') },
-] as const;
 
-type Section = { title: string; channels: Channel[] };
+type FilterKey = 'all' | 'movies' | 'series' | 'favorites';
 
-async function loadSection(
-  title: string,
-  fetcher: () => Promise<Channel[]>,
-  showAdult: boolean,
-): Promise<Section | null> {
-  try {
-    const channels = filterAdult(await fetcher(), showAdult).slice(0, 24);
-    if (channels.length === 0) return null;
-    return { title, channels };
-  } catch (e) {
-    void e;
-    return null;
-  }
-}
+const FILTER_TABS: { key: FilterKey; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'movies', label: 'Movies' },
+  { key: 'series', label: 'TV Shows' },
+  { key: 'favorites', label: 'My List' },
+];
 
 function Home() {
   const { colors, dark } = useTheme();
-  const showAdult = useSettings(s => s.showAdult);
   const hasServer = useMsConfigured();
-  const [sections, setSections] = useState<Section[]>([]);
-  const [latestMovies, setLatestMovies] = useState<VodItem[]>([]);
+
+  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+
+  // Movies
   const [trendingMovies, setTrendingMovies] = useState<VodItem[]>([]);
-  const [vod, setVod] = useState<VodItem[]>([]);
+  const [popularMovies, setPopularMovies] = useState<VodItem[]>([]);
+  const [latestMovies, setLatestMovies] = useState<VodItem[]>([]);
+  const [topRatedMovies, setTopRatedMovies] = useState<VodItem[]>([]);
+
+  // TV Shows
+  const [trendingTV, setTrendingTV] = useState<VodItem[]>([]);
+  const [popularTV, setPopularTV] = useState<VodItem[]>([]);
+  const [topRatedTV, setTopRatedTV] = useState<VodItem[]>([]);
+  const [onTheAirTV, setOnTheAirTV] = useState<VodItem[]>([]);
+  const [actionTV, setActionTV] = useState<VodItem[]>([]);
+  const [scifiTV, setScifiTV] = useState<VodItem[]>([]);
+  const [dramaTV, setDramaTV] = useState<VodItem[]>([]);
+  const [comedyTV, setComedyTV] = useState<VodItem[]>([]);
+  const [animationTV, setAnimationTV] = useState<VodItem[]>([]);
+
+  // Movie Genre rows
+  const [actionMovies, setActionMovies] = useState<VodItem[]>([]);
+  const [scifiMovies, setScifiMovies] = useState<VodItem[]>([]);
+  const [comedyMovies, setComedyMovies] = useState<VodItem[]>([]);
+  const [horrorMovies, setHorrorMovies] = useState<VodItem[]>([]);
+  const [animationMovies, setAnimationMovies] = useState<VodItem[]>([]);
+
+  // Classics & Library
+  const [archiveFilms, setArchiveFilms] = useState<VodItem[]>([]);
   const [library, setLibrary] = useState<VodItem[]>([]);
+
+  // Store slices
+  const continueWatching = useLocalStore(s => s.continueWatching);
+  const watchlist = useLocalStore(s => s.watchlist);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   const load = useCallback(() => {
+    let alive = true;
     const run = async () => {
       try {
-        const store = useLocalStore.getState();
-        const recents = store.recents.slice(0, 20);
-        const favorites = store.favorites.slice(0, 20);
-        const latestPromise = tmdbLatestMovies(1)
-          .catch(() => [] as VodItem[])
-          .then(items => {
-            setLatestMovies(items.slice(0, 14));
-            return items;
-          });
-        const trendingPromise = tmdbTrendingMovies(1)
-          .catch(() => [] as VodItem[])
-          .then(items => {
-            setTrendingMovies(items.slice(0, 14));
-            return items;
-          });
-        const filmsPromise = searchArchive({ rows: 10 })
-          .catch(() => [] as VodItem[])
-          .then(items => {
-            setVod(items);
-            return items;
-          });
-        const libraryPromise = (hasServer ? msBrowse({ pageSize: 10, latest: true }) : Promise.resolve([] as VodItem[]))
-          .catch(() => [] as VodItem[])
-          .then(items => {
-            setLibrary(items);
-            return items;
-          });
-        const tasks: Promise<Section | null>[] = [];
-        if (recents.length > 0) {
-          tasks.push(loadSection('Continue watching', () => Promise.resolve(recents), showAdult));
-        }
-        if (favorites.length > 0) {
-          tasks.push(loadSection('My channels', () => Promise.resolve(favorites), showAdult));
-        }
-        for (const name of FEATURED_NAMES) {
-          const category = IPTV_CATEGORIES.find(
-            c => c.name.toLowerCase() === name.toLowerCase(),
-          );
-          if (!category) continue;
-          tasks.push(loadSection(category.name, () => fetchCategoryChannels(category.id), showAdult));
-        }
-        for (const code of COUNTRY_CODES) {
-          const country = POPULAR_COUNTRIES.find(c => c.code === code);
-          if (!country) continue;
-          tasks.push(loadSection(country.name, () => fetchCountryChannels(country.code), showAdult));
-        }
-        const results = await Promise.all(tasks);
-        setSections(results.filter((s): s is Section => s !== null));
-        await Promise.all([latestPromise, trendingPromise, filmsPromise, libraryPromise]);
+        const pTrending = tmdbTrendingMovies(1).catch(() => [] as VodItem[]);
+        const pLatest = tmdbLatestMovies(1).catch(() => [] as VodItem[]);
+        const pPopular = tmdbPopularMovies(1).catch(() => [] as VodItem[]);
+        const pTopRated = tmdbTopRatedMovies(1).catch(() => [] as VodItem[]);
+
+        const pTrendingTV = tmdbTrendingTV(1).catch(() => [] as VodItem[]);
+        const pPopularTV = tmdbPopularTV(1).catch(() => [] as VodItem[]);
+        const pTopRatedTV = tmdbTopRatedTV(1).catch(() => [] as VodItem[]);
+        const pOnTheAirTV = tmdbOnTheAirTV(1).catch(() => [] as VodItem[]);
+        const pActionTV = tmdbGenreTV(TMDB_TV_GENRES.ACTION_ADVENTURE, 1).catch(() => [] as VodItem[]);
+        const pScifiTV = tmdbGenreTV(TMDB_TV_GENRES.SCIFI_FANTASY, 1).catch(() => [] as VodItem[]);
+        const pDramaTV = tmdbGenreTV(TMDB_TV_GENRES.DRAMA, 1).catch(() => [] as VodItem[]);
+        const pComedyTV = tmdbGenreTV(TMDB_TV_GENRES.COMEDY, 1).catch(() => [] as VodItem[]);
+        const pAnimationTV = tmdbGenreTV(TMDB_TV_GENRES.ANIMATION, 1).catch(() => [] as VodItem[]);
+
+        const pAction = tmdbGenreMovies(TMDB_GENRES.ACTION, 1).catch(() => [] as VodItem[]);
+        const pScifi = tmdbGenreMovies(TMDB_GENRES.SCIFI, 1).catch(() => [] as VodItem[]);
+        const pComedy = tmdbGenreMovies(TMDB_GENRES.COMEDY, 1).catch(() => [] as VodItem[]);
+        const pHorror = tmdbGenreMovies(TMDB_GENRES.HORROR, 1).catch(() => [] as VodItem[]);
+        const pAnimation = tmdbGenreMovies(TMDB_GENRES.ANIMATION, 1).catch(() => [] as VodItem[]);
+
+        const pArchive = searchArchive({ rows: 12 }).catch(() => [] as VodItem[]);
+        const pLibrary = hasServer
+          ? msBrowse({ pageSize: 12, latest: true }).catch(() => [] as VodItem[])
+          : Promise.resolve([] as VodItem[]);
+
+        const [
+          trending,
+          latest,
+          popular,
+          topRated,
+          tvTrending,
+          tvPopular,
+          tvTopRated,
+          tvOnTheAir,
+          tvAction,
+          tvScifi,
+          tvDrama,
+          tvComedy,
+          tvAnimation,
+          action,
+          scifi,
+          comedy,
+          horror,
+          animation,
+          archive,
+          lib,
+        ] = await Promise.all([
+          pTrending,
+          pLatest,
+          pPopular,
+          pTopRated,
+          pTrendingTV,
+          pPopularTV,
+          pTopRatedTV,
+          pOnTheAirTV,
+          pActionTV,
+          pScifiTV,
+          pDramaTV,
+          pComedyTV,
+          pAnimationTV,
+          pAction,
+          pScifi,
+          pComedy,
+          pHorror,
+          pAnimation,
+          pArchive,
+          pLibrary,
+        ]);
+
+        if (!alive) return;
+
+        setTrendingMovies(trending);
+        setLatestMovies(latest);
+        setPopularMovies(popular);
+        setTopRatedMovies(topRated);
+
+        setTrendingTV(tvTrending);
+        setPopularTV(tvPopular);
+        setTopRatedTV(tvTopRated);
+        setOnTheAirTV(tvOnTheAir);
+        setActionTV(tvAction);
+        setScifiTV(tvScifi);
+        setDramaTV(tvDrama);
+        setComedyTV(tvComedy);
+        setAnimationTV(tvAnimation);
+
+        setActionMovies(action);
+        setScifiMovies(scifi);
+        setComedyMovies(comedy);
+        setHorrorMovies(horror);
+        setAnimationMovies(animation);
+        setArchiveFilms(archive);
+        setLibrary(lib);
+
         setError('');
         setLoading(false);
-      } catch (e) {
-        void e;
-        setError('Could not load channels. Check your connection or add a playlist.');
+      } catch {
+        if (!alive) return;
+        setError('Could not load catalog. Check your internet connection.');
         setLoading(false);
       }
     };
     void run();
-  }, [showAdult, hasServer]);
+    return () => {
+      alive = false;
+    };
+  }, [hasServer]);
 
-  useFocusEffect(useCallback(() => {
-    load();
-  }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
+
+  // Spotlight items for the Netflix Hero billboard (top 6 trending & latest titles with backdrops)
+  const spotlightPool =
+    activeFilter === 'series'
+      ? trendingTV
+      : trendingMovies.length > 0
+        ? trendingMovies
+        : latestMovies;
+  const spotlight = spotlightPool.filter(i => Boolean(i.backdrop || i.poster)).slice(0, 6);
+
+  const mylistVods = watchlist.map(watchlistItemToVod);
+
+  const handleOpenItem = (item: VodItem) => {
+    void openVodItem(item).then(message => setNotice(message ?? ''));
+  };
 
   const headerView = (
     <View style={styles.header}>
-      <View style={styles.headerRow}>
+      <View style={styles.headerTop}>
         <Image
           source={dark ? HEADER_LOGO_DARK : HEADER_LOGO_LIGHT}
           style={styles.brandLogo}
           contentFit="contain"
           accessibilityLabel="BiraloTV"
         />
-        <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-          Live TV from iptv-org, plus latest movies and free films on demand
-        </Text>
+        <View style={styles.headerIcons}>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: colors.elevated }]}
+            onPress={() => router.push({ pathname: '/on-demand', params: { query: '' } })}
+            hitSlop={8}
+            accessibilityLabel="Search"
+          >
+            <Text style={[styles.iconText, { color: colors.text }]}>🔍</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: colors.elevated }]}
+            onPress={() => router.push('/settings')}
+            hitSlop={8}
+            accessibilityLabel="Settings"
+          >
+            <Text style={[styles.iconText, { color: colors.text }]}>⚙</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Netflix Filter Tabs */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.links}
-        style={styles.linksScroll}
+        contentContainerStyle={styles.filterPills}
+        style={styles.filterScroll}
       >
-        {HEADER_LINKS.map(link => (
-          <TouchableOpacity
-            key={link.key}
-            style={[styles.link, { backgroundColor: colors.elevated }]}
-            onPress={link.onPress}
-          >
-            <Text style={[styles.linkText, { color: colors.text }]}>{link.label}</Text>
-          </TouchableOpacity>
-        ))}
+        {FILTER_TABS.map(tab => {
+          const active = activeFilter === tab.key;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[
+                styles.filterPill,
+                {
+                  backgroundColor: active ? colors.text : colors.elevated,
+                },
+              ]}
+              onPress={() => {
+                if (tab.key === 'favorites') {
+                  router.push('/favorites');
+                } else {
+                  setActiveFilter(tab.key);
+                }
+              }}
+            >
+              <Text
+                style={[
+                  styles.filterPillText,
+                  { color: active ? colors.bg : colors.text },
+                ]}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
     </View>
   );
 
   const nothingYet =
-    sections.length === 0 &&
-    latestMovies.length === 0 &&
     trendingMovies.length === 0 &&
-    vod.length === 0 &&
-    library.length === 0;
+    latestMovies.length === 0 &&
+    popularMovies.length === 0 &&
+    archiveFilms.length === 0;
 
   let body;
   if (loading && nothingYet) {
     body = (
-      <View style={styles.empty}>
-        <Text style={[styles.emptyText, { color: colors.textMuted }]}>Loading channels & movies…</Text>
-      </View>
-    );
-  } else if (nothingYet) {
-    body = (
-      <View style={styles.empty}>
-        <Text style={[styles.emptyTitle, { color: colors.text }]}>No channels yet</Text>
-        <Text style={[styles.emptyText, { color: colors.textMuted }]}>
-          Add a playlist to get started, or check your connection.
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator size="large" color={colors.accent} />
+        <Text style={[styles.loadingText, { color: colors.textMuted }]}>
+          Loading BiraloTV…
         </Text>
-        <TouchableOpacity
-          style={[styles.link, styles.center, { backgroundColor: colors.elevated }]}
-          onPress={() => router.push('/playlists')}
-        >
-          <Text style={[styles.linkText, { color: colors.text }]}>Add playlist</Text>
-        </TouchableOpacity>
       </View>
     );
   } else {
@@ -197,52 +314,287 @@ function Home() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <VodRow
-          title="From your library"
-          items={library}
-          onSeeAll={() => router.push({ pathname: '/on-demand', params: { scope: 'server' } })}
-          onPress={item => {
-            void openVodItem(item).then(message => setNotice(message ?? ''));
-          }}
-        />
-        <VodRow
-          title="Latest movies"
-          items={latestMovies}
-          onSeeAll={() => router.push({ pathname: '/on-demand', params: { scope: 'latest-movies' } })}
-          onPress={item => {
-            void openVodItem(item).then(message => setNotice(message ?? ''));
-          }}
-        />
-        <VodRow
-          title="Trending movies"
-          items={trendingMovies}
-          onSeeAll={() => router.push({ pathname: '/on-demand', params: { scope: 'trending-movies' } })}
-          onPress={item => {
-            void openVodItem(item).then(message => setNotice(message ?? ''));
-          }}
-        />
-        <VodRow
-          title="Free to watch"
-          items={vod}
-          onSeeAll={() => router.push({ pathname: '/on-demand', params: { scope: 'films' } })}
-          onPress={item => {
-            void openVodItem(item).then(message => setNotice(message ?? ''));
-          }}
-        />
-        {sections.map(section => (
-          <ChannelRow key={section.title} title={section.title} channels={section.channels} />
-        ))}
+        {/* Netflix Featured Hero Billboard */}
+        {spotlight.length > 0 ? (
+          <NetflixHero
+            items={spotlight}
+            onPlay={handleOpenItem}
+            onInfo={handleOpenItem}
+          />
+        ) : null}
+
+        <View style={styles.rowsContainer}>
+          {/* Continue Watching Row (Saved locally) */}
+          <ContinueWatchingRow items={continueWatching} />
+
+          {/* My List Row (Saved locally) */}
+          {mylistVods.length > 0 ? (
+            <VodRow
+              title="My List"
+              subtitle="Movies & TV series you saved"
+              items={mylistVods}
+              onSeeAll={() => router.push('/favorites')}
+              onPress={handleOpenItem}
+            />
+          ) : null}
+
+          {/* Movies / All View */}
+          {activeFilter !== 'series' ? (
+            <>
+              {/* Trending Now (with Netflix Top 10 badges!) */}
+              <VodRow
+                title="Trending Now"
+                subtitle="Top 10 in movies today"
+                items={trendingMovies}
+                showRanks
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'trending-movies' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Popular on BiraloTV */}
+              <VodRow
+                title="Popular on BiraloTV"
+                items={popularMovies}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'popular-movies' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Latest Releases */}
+              <VodRow
+                title="Latest Releases"
+                items={latestMovies}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'latest-movies' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Top Rated */}
+              <VodRow
+                title="Critically Acclaimed"
+                subtitle="Highest rated movies"
+                items={topRatedMovies}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'top-rated-movies' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Action & Adventure */}
+              <VodRow
+                title="Action & Adventure"
+                items={actionMovies}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'action-movies' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Sci-Fi & Fantasy */}
+              <VodRow
+                title="Sci-Fi & Fantasy"
+                items={scifiMovies}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'scifi-movies' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Comedy Hits */}
+              <VodRow
+                title="Comedy Hits"
+                items={comedyMovies}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'comedy-movies' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Horror & Thrillers */}
+              <VodRow
+                title="Horror & Thrillers"
+                items={horrorMovies}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'horror-movies' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Animation & Anime */}
+              <VodRow
+                title="Animation & Anime"
+                items={animationMovies}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'animation-movies' } })
+                }
+                onPress={handleOpenItem}
+              />
+            </>
+          ) : null}
+
+          {/* Series / TV View */}
+          {activeFilter !== 'movies' ? (
+            <>
+              {activeFilter === 'series' ? (
+                <View style={styles.tvBrowseBanner}>
+                  <TouchableOpacity
+                    style={[styles.tvBrowseBtn, { backgroundColor: colors.accent }]}
+                    onPress={() =>
+                      router.push({ pathname: '/on-demand', params: { scope: 'trending-tv' } })
+                    }
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.tvBrowseBtnText}>📺 Browse All TV Shows & Series ›</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              {/* Trending TV Series */}
+              <VodRow
+                title="Trending TV Series"
+                subtitle="Top 10 most watched shows this week"
+                items={trendingTV}
+                showRanks
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'trending-tv' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Popular TV Shows */}
+              <VodRow
+                title="Popular TV Shows"
+                subtitle="Fan favorites worldwide"
+                items={popularTV}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'popular-tv' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Top Rated TV */}
+              <VodRow
+                title="Critically Acclaimed TV"
+                subtitle="Highest rated television series"
+                items={topRatedTV}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'top-rated-tv' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Airing Today & On The Air */}
+              <VodRow
+                title="New & Airing Episodes"
+                subtitle="Currently broadcasting series"
+                items={onTheAirTV}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'on-the-air-tv' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Action & Adventure TV */}
+              <VodRow
+                title="Action & Adventure Series"
+                items={actionTV}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'action-tv' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Sci-Fi & Fantasy TV */}
+              <VodRow
+                title="Sci-Fi & Fantasy TV"
+                items={scifiTV}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'scifi-tv' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Drama & Thriller Series */}
+              <VodRow
+                title="Drama & Thriller Series"
+                items={dramaTV}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'drama-tv' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Comedy Series */}
+              <VodRow
+                title="Comedy Series"
+                items={comedyTV}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'comedy-tv' } })
+                }
+                onPress={handleOpenItem}
+              />
+
+              {/* Anime & Animated TV */}
+              <VodRow
+                title="Anime & Animated TV"
+                items={animationTV}
+                onSeeAll={() =>
+                  router.push({ pathname: '/on-demand', params: { scope: 'anime-tv' } })
+                }
+                onPress={handleOpenItem}
+              />
+            </>
+          ) : null}
+
+          {/* Free Cinema & Classics */}
+          <VodRow
+            title="Free to Watch Cinema"
+            subtitle="Public domain classics & cult films"
+            items={archiveFilms}
+            onSeeAll={() =>
+              router.push({ pathname: '/on-demand', params: { scope: 'films' } })
+            }
+            onPress={handleOpenItem}
+          />
+
+          {/* Media Server Library */}
+          {library.length > 0 ? (
+            <VodRow
+              title="From Your Library"
+              items={library}
+              onSeeAll={() =>
+                router.push({ pathname: '/on-demand', params: { scope: 'server' } })
+              }
+              onPress={handleOpenItem}
+            />
+          ) : null}
+        </View>
       </ScrollView>
     );
   }
 
   return (
-    <ScreenError error={error} onRetry={() => { setNotice(''); load(); }}>
+    <ScreenError
+      error={error}
+      onRetry={() => {
+        setNotice('');
+        load();
+      }}
+    >
       <SafeScreen bg={colors.bg}>
         {headerView}
         {notice ? (
-          <TouchableOpacity style={[styles.notice, { backgroundColor: colors.danger }]} onPress={() => setNotice('')}>
-            <Text style={styles.noticeText} numberOfLines={2}>{notice}</Text>
+          <TouchableOpacity
+            style={[styles.notice, { backgroundColor: colors.danger }]}
+            onPress={() => setNotice('')}
+          >
+            <Text style={styles.noticeText} numberOfLines={2}>
+              {notice}
+            </Text>
           </TouchableOpacity>
         ) : null}
         {body}
@@ -259,47 +611,68 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: 8,
-    paddingBottom: 20,
-    paddingHorizontal: 24,
+    paddingBottom: 10,
+    paddingHorizontal: 22,
+    zIndex: 20,
   },
-  headerRow: {
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
   },
   brandLogo: {
-    width: 216,
-    height: 56,
-    marginBottom: 4,
+    width: 200,
+    height: 52,
   },
-  subtitle: {
-    marginTop: 4,
-    fontSize: 13,
+  headerIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
-  linksScroll: {
-    marginTop: 16,
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconText: {
+    fontSize: 16,
+  },
+  filterScroll: {
+    marginTop: 10,
     flexGrow: 0,
   },
-  links: {
-    gap: 10,
-    paddingRight: 24,
+  filterPills: {
+    gap: 8,
+    paddingRight: 10,
   },
-  link: {
-    paddingVertical: 10,
+  filterPill: {
+    paddingVertical: 7,
     paddingHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 999,
   },
-  linkText: {
+  filterPillText: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: -0.1,
+  },
+  rowsContainer: {
+    paddingTop: 16,
+  },
+  loadingWrap: {
+    paddingVertical: 120,
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
     fontSize: 14,
     fontWeight: '600',
   },
-  empty: {
-    paddingVertical: 80,
-    alignItems: 'center',
-  },
   notice: {
-    marginHorizontal: 24,
+    marginHorizontal: 22,
     marginBottom: 12,
-    borderRadius: 12,
+    borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
@@ -308,18 +681,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
-  emptyTitle: {
-    fontSize: 22,
-    fontWeight: '700',
+  tvBrowseBanner: {
+    paddingHorizontal: 22,
+    marginBottom: 16,
   },
-  emptyText: {
-    marginTop: 8,
+  tvBrowseBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tvBrowseBtnText: {
+    color: '#fff',
     fontSize: 14,
-    textAlign: 'center',
-    paddingHorizontal: 40,
-    lineHeight: 20,
-  },
-  center: {
-    marginTop: 24,
+    fontWeight: '800',
+    letterSpacing: -0.2,
   },
 });

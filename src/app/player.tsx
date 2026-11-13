@@ -75,6 +75,7 @@ type PlayerParams = {
   streamsJson?: string;
   subtitlesJson?: string;
   fresh?: string;
+  resumePos?: string;
 };
 
 function subtitleSourceBadge(source?: string): string {
@@ -127,6 +128,31 @@ function PlayerSession({ params }: { params: PlayerParams }) {
   const [error, setError] = useState('');
   const [playbackError, setPlaybackError] = useState('');
   const resolveSeq = useRef(0);
+
+  const initialPos = useMemo(() => {
+    if (params.resumePos) {
+      const p = Number(params.resumePos);
+      if (Number.isFinite(p) && p > 0) return p;
+    }
+    const saved = useLocalStore.getState().continueWatching.find(c => c.id === id);
+    if (saved && saved.position > 5) {
+      if (saved.duration > 0 && saved.position / saved.duration > 0.95) return 0;
+      return saved.position;
+    }
+    return 0;
+  }, [id, params.resumePos]);
+
+  const lastProgressSaveRef = useRef(0);
+  const handleProgress = useCallback(
+    ({ position, duration }: { position: number; duration: number }) => {
+      const now = Date.now();
+      if (now - lastProgressSaveRef.current > 3000) {
+        lastProgressSaveRef.current = now;
+        useLocalStore.getState().updatePlaybackProgress(id, position, duration);
+      }
+    },
+    [id],
+  );
 
   const fromParams = useMemo<Channel | null>(() => {
     if (!id) return null;
@@ -266,12 +292,6 @@ function PlayerSession({ params }: { params: PlayerParams }) {
     if (!id) router.replace('/');
   }, [id]);
 
-  useEffect(() => {
-    if (channel && (!scraperTarget || Boolean(channel.stream))) {
-      api.addRecent(channel);
-    }
-  }, [channel, scraperTarget]);
-
   function toggleFav() {
     if (!channel) return;
     if (fav) api.removeFavorite(channel.id);
@@ -285,6 +305,27 @@ function PlayerSession({ params }: { params: PlayerParams }) {
     if (scraperTarget && params.fresh !== '1') return undefined;
     return channel.stream;
   }, [channel, isEmbed, resolvedStream, scraperTarget, params.fresh]);
+
+  useEffect(() => {
+    if (channel && (!scraperTarget || Boolean(channel.stream))) {
+      api.addRecent(channel);
+    }
+    if (channel && stream && (scraperTarget || id.startsWith('tmdb:') || id.startsWith('archive:'))) {
+      useLocalStore.getState().saveContinueWatching({
+        id,
+        title: channel.name,
+        poster: channel.logo,
+        source: channel.source,
+        stream,
+        kind: scraperTarget?.kind,
+        tmdbId: scraperTarget?.tmdbId,
+        season: scraperTarget && scraperTarget.kind === 'tv' ? scraperTarget.season : undefined,
+        episode: scraperTarget && scraperTarget.kind === 'tv' ? scraperTarget.episode : undefined,
+        position: initialPos,
+        duration: 0,
+      });
+    }
+  }, [channel, scraperTarget, stream, id, initialPos]);
 
   const isHls =
     params.hls === '1'
@@ -559,6 +600,8 @@ function PlayerSession({ params }: { params: PlayerParams }) {
               selectedSubtitleId={selectedSubId}
               subtitleOffsetSec={subtitleOffsetSec}
               subtitleSize={subTextSize}
+              initialPosition={initialPos}
+              onProgress={handleProgress}
               onNativeSubtitleSelect={track => {
                 setSubOverride(track ? { mode: 'track', id: track.id } : { mode: 'off' });
                 setSubNote('');

@@ -9,6 +9,7 @@ export type VodItem = {
   title: string;
   year?: number;
   poster?: string;
+  backdrop?: string;
   overview?: string;
   source: 'archive' | 'tmdb' | 'server' | 'pluto';
   identifier?: string;
