@@ -244,6 +244,11 @@ export function StreamPlayer({
       });
     return () => {
       alive = false;
+      try {
+        if (player.currentTime > 0) {
+          onProgressRef.current?.({ position: player.currentTime, duration: player.duration || 0 });
+        }
+      } catch {}
     };
   }, [stream, isHls, title, artwork, player, initialPosition]);
 

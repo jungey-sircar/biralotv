@@ -48,7 +48,7 @@ export default function VodDetail() {
   const inList = useLocalStore(s => (data ? s.inWatchlist(data.item.id) : false));
   const currentMediaId = kind === 'tv' ? `scraper:tv:${id}:${season}:${episode}` : `scraper:movie:${id}`;
   const savedProgress = useLocalStore(s =>
-    s.continueWatching.find(c => c.id === currentMediaId),
+    s.continueWatching.find(c => c.id === currentMediaId || (c.tmdbId === id && c.kind === kind)),
   );
   const toggleList = () => {
     if (data?.item) useLocalStore.getState().toggleWatchlist(data.item);
@@ -127,6 +127,23 @@ export default function VodDetail() {
     setResolving(true);
     setStreamError('');
     setNeedsScraperSetup(false);
+
+    // Immediately record movie/show into continue watching so it's stored from the start
+    const mediaId = kind === 'tv' ? `scraper:tv:${id}:${season}:${episode}` : `scraper:movie:${id}`;
+    useLocalStore.getState().saveContinueWatching({
+      id: mediaId,
+      title: kind === 'tv' ? `${title} · S${season} E${episode}` : title,
+      poster: data?.item.poster,
+      backdrop: data?.backdrop || data?.item.poster,
+      source: 'stream-scraper',
+      kind,
+      tmdbId: id,
+      season: kind === 'tv' ? season : undefined,
+      episode: kind === 'tv' ? episode : undefined,
+      position: resumePos ?? savedProgress?.position ?? 0,
+      duration: savedProgress?.duration ?? (data?.runtime ? data.runtime * 60 : 0),
+    });
+
     try {
       const res =
         kind === 'tv'
@@ -140,7 +157,7 @@ export default function VodDetail() {
         return;
       }
       openPlayer({
-        id: kind === 'tv' ? `scraper:tv:${id}:${season}:${episode}` : `scraper:movie:${id}`,
+        id: mediaId,
         name: kind === 'tv' ? `${title} · S${season} E${episode}` : title,
         stream: chosen,
         source: `stream-scraper:${res.server}`,
@@ -150,7 +167,7 @@ export default function VodDetail() {
         streamsJson: JSON.stringify(variants),
         subtitlesJson: res.subtitles?.length ? JSON.stringify(res.subtitles) : undefined,
         fresh: true,
-        resumePos,
+        resumePos: resumePos ?? savedProgress?.position ?? 0,
       });
     } catch (e: unknown) {
       if (e instanceof ScraperError && e.code === 'NO_SCRAPER') {

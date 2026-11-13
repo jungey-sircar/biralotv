@@ -37,6 +37,8 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join('; ');
 
+const PREFERRED_PORT = 38442;
+
 /** Serves an `expo export --platform web` output on a loopback port with SPA fallback. */
 function startServer(webRoot, runtimeConfig = {}) {
   const root = path.resolve(webRoot);
@@ -66,13 +68,30 @@ function startServer(webRoot, runtimeConfig = {}) {
       res.writeHead(200, headers);
       fs.createReadStream(file).pipe(res);
     });
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
+
+    const onListen = () => {
       resolve({
         url: `http://127.0.0.1:${server.address().port}/`,
         close: () => new Promise(done => server.close(done)),
       });
+    };
+
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        const fallbackServer = http.createServer(server.listeners('request')[0]);
+        fallbackServer.on('error', reject);
+        fallbackServer.listen(0, '127.0.0.1', () => {
+          resolve({
+            url: `http://127.0.0.1:${fallbackServer.address().port}/`,
+            close: () => new Promise(done => fallbackServer.close(done)),
+          });
+        });
+      } else {
+        reject(err);
+      }
     });
+
+    server.listen(PREFERRED_PORT, '127.0.0.1', onListen);
   });
 }
 

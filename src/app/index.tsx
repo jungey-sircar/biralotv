@@ -31,7 +31,7 @@ import {
   TMDB_TV_GENRES,
 } from '@/lib/tmdb';
 import { openVodItem } from '@/lib/util';
-import { useLocalStore, watchlistItemToVod } from '@/lib/store';
+import { useLocalStore, useLocalStoreHydrated, watchlistItemToVod } from '@/lib/store';
 import { useTheme } from '@/theme';
 
 const HEADER_LOGO_DARK = require('../../assets/images/biralotv-horizontal.png');
@@ -81,6 +81,7 @@ function Home() {
   const [library, setLibrary] = useState<VodItem[]>([]);
 
   // Store slices
+  useLocalStoreHydrated();
   const continueWatching = useLocalStore(s => s.continueWatching);
   const watchlist = useLocalStore(s => s.watchlist);
 

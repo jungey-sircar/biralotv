@@ -182,6 +182,7 @@ async function createWindow() {
     title: 'biralotv',
     autoHideMenuBar: true,
     webPreferences: {
+      partition: 'persist:biralotv',
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

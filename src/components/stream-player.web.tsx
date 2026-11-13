@@ -115,14 +115,19 @@ export function StreamPlayer({
     };
     el.addEventListener('timeupdate', handleTimeUpdate);
 
-    const handleLoadedMetadata = () => {
-      if (initialPosition && initialPosition > 0 && el.currentTime < 1) {
-        try {
-          el.currentTime = initialPosition;
-        } catch {}
-      }
+    let hasSeekedInitial = false;
+    const seekInitial = () => {
+      if (hasSeekedInitial || !initialPosition || initialPosition <= 0) return;
+      try {
+        if (el.duration > 0 || (el.seekable && el.seekable.length > 0)) {
+          el.currentTime = Math.min(initialPosition, Math.max(0, el.duration - 2));
+          hasSeekedInitial = true;
+        }
+      } catch {}
     };
-    el.addEventListener('loadedmetadata', handleLoadedMetadata);
+    el.addEventListener('loadedmetadata', seekInitial);
+    el.addEventListener('canplay', seekInitial);
+    el.addEventListener('playing', seekInitial);
 
     if (wantsHls && mseOk) {
       hls = new HlsLib({
@@ -138,11 +143,7 @@ export function StreamPlayer({
       hls.attachMedia(el);
       hls.on(Events.MANIFEST_PARSED, () => {
         netRetries = 0;
-        if (initialPosition && initialPosition > 0 && el.currentTime < 1) {
-          try {
-            el.currentTime = initialPosition;
-          } catch {}
-        }
+        seekInitial();
         void el.play().catch(() => {});
       });
       hls.on(Events.ERROR, (_event, data) => {
@@ -175,9 +176,14 @@ export function StreamPlayer({
 
     return () => {
       active = false;
+      if (el && el.currentTime > 0) {
+        onProgressRef.current?.({ position: el.currentTime, duration: el.duration || 0 });
+      }
       el.removeEventListener('error', handleNativeError);
       el.removeEventListener('timeupdate', handleTimeUpdate);
-      el.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      el.removeEventListener('loadedmetadata', seekInitial);
+      el.removeEventListener('canplay', seekInitial);
+      el.removeEventListener('playing', seekInitial);
       hls?.destroy();
       for (let i = 0; i < el.textTracks.length; i++) {
         el.textTracks[i].mode = 'disabled';

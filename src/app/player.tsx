@@ -24,7 +24,17 @@ import { goBack } from '@/lib/util';
 import { useTheme } from '@/theme';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  AppState,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { WebView } from 'react-native-webview';
 import { SafeScreen } from '@/components/SafeScreen';
 import { StreamPlayer } from '@/components/stream-player';
@@ -142,17 +152,59 @@ function PlayerSession({ params }: { params: PlayerParams }) {
     return 0;
   }, [id, params.resumePos]);
 
+  const currentPosRef = useRef(initialPos);
+  const currentDurRef = useRef(0);
+
+  const flushProgress = useCallback(() => {
+    const pos = currentPosRef.current;
+    const dur = currentDurRef.current;
+    if (id && pos > 0) {
+      useLocalStore.getState().updatePlaybackProgress(id, pos, dur);
+    }
+  }, [id]);
+
   const lastProgressSaveRef = useRef(0);
   const handleProgress = useCallback(
     ({ position, duration }: { position: number; duration: number }) => {
+      currentPosRef.current = position;
+      if (duration > 0) currentDurRef.current = duration;
       const now = Date.now();
-      if (now - lastProgressSaveRef.current > 3000) {
+      if (now - lastProgressSaveRef.current >= 2000) {
         lastProgressSaveRef.current = now;
         useLocalStore.getState().updatePlaybackProgress(id, position, duration);
       }
     },
     [id],
   );
+
+  // 1. Flush progress when player component unmounts
+  useEffect(() => {
+    return () => {
+      flushProgress();
+    };
+  }, [flushProgress]);
+
+  // 2. Flush progress when app moves to background (Android / iOS app exit/switch)
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', nextState => {
+      if (nextState !== 'active') {
+        flushProgress();
+      }
+    });
+    return () => sub.remove();
+  }, [flushProgress]);
+
+  // 3. Flush progress on desktop window close / beforeunload
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const onExit = () => flushProgress();
+    window.addEventListener('beforeunload', onExit);
+    window.addEventListener('pagehide', onExit);
+    return () => {
+      window.removeEventListener('beforeunload', onExit);
+      window.removeEventListener('pagehide', onExit);
+    };
+  }, [flushProgress]);
 
   const fromParams = useMemo<Channel | null>(() => {
     if (!id) return null;
@@ -310,7 +362,16 @@ function PlayerSession({ params }: { params: PlayerParams }) {
     if (channel && (!scraperTarget || Boolean(channel.stream))) {
       api.addRecent(channel);
     }
-    if (channel && stream && (scraperTarget || id.startsWith('tmdb:') || id.startsWith('archive:'))) {
+    const isVodMedia =
+      scraperTarget !== null ||
+      id.startsWith('scraper:') ||
+      id.startsWith('tmdb:') ||
+      id.startsWith('archive:') ||
+      id.startsWith('server:') ||
+      id.startsWith('ms:') ||
+      id.startsWith('pluto:');
+
+    if (channel && stream && isVodMedia) {
       useLocalStore.getState().saveContinueWatching({
         id,
         title: channel.name,
@@ -321,8 +382,8 @@ function PlayerSession({ params }: { params: PlayerParams }) {
         tmdbId: scraperTarget?.tmdbId,
         season: scraperTarget && scraperTarget.kind === 'tv' ? scraperTarget.season : undefined,
         episode: scraperTarget && scraperTarget.kind === 'tv' ? scraperTarget.episode : undefined,
-        position: initialPos,
-        duration: 0,
+        position: currentPosRef.current > 0 ? currentPosRef.current : initialPos,
+        duration: currentDurRef.current > 0 ? currentDurRef.current : 0,
       });
     }
   }, [channel, scraperTarget, stream, id, initialPos]);

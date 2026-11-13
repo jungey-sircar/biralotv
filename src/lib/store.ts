@@ -167,19 +167,33 @@ export const useLocalStore = create<LocalStoreState>()(
       // Continue watching implementations
       saveContinueWatching: entry =>
         set(s => {
-          const filtered = s.continueWatching.filter(c => c.id !== entry.id);
+          const existing = s.continueWatching.find(c => c.id === entry.id);
+          // Preserve existing higher progress if new entry has position 0 or undefined
+          const pos =
+            entry.position && entry.position > 0
+              ? entry.position
+              : existing?.position ?? 0;
+          const dur =
+            entry.duration && entry.duration > 0
+              ? entry.duration
+              : existing?.duration ?? 0;
+
           const item: ContinueWatchingItem = {
+            ...existing,
             ...entry,
+            position: pos,
+            duration: dur,
             lastWatched: entry.lastWatched ?? Date.now(),
           };
-          return { continueWatching: [item, ...filtered].slice(0, 30) };
+          const rest = s.continueWatching.filter(c => c.id !== entry.id);
+          return { continueWatching: [item, ...rest].slice(0, 30) };
         }),
 
       updatePlaybackProgress: (id, position, duration) =>
         set(s => {
+          const pos = Math.max(0, Math.round(position));
           const existing = s.continueWatching.find(c => c.id === id);
           if (!existing) return s;
-          const pos = Math.max(0, Math.round(position));
           const dur = duration && duration > 0 ? Math.round(duration) : existing.duration;
           const updated: ContinueWatchingItem = {
             ...existing,
