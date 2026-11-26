@@ -20,6 +20,7 @@ import {
   type WatchlistItem,
 } from '@/lib/store';
 import { useTheme, filterAdult, useSettings } from '@/theme';
+import { useDownloadsStore } from '@/lib/downloads';
 import { goBack, openPlayer, openVodItem } from '@/lib/util';
 
 export default function Favorites() {
@@ -31,6 +32,7 @@ export default function Favorites() {
   const watchlist = useLocalStore(s => s.watchlist);
   const channelFavorites = useLocalStore(s => s.favorites);
   const filteredChannels = filterAdult(channelFavorites, showAdult);
+  const downloadsCount = useDownloadsStore(s => s.items.length);
 
   const [tab, setTab] = useState<'watchlist' | 'channels'>('watchlist');
 
@@ -60,6 +62,14 @@ export default function Favorites() {
               ]}
             >
               Movies & Shows ({watchlist.length})
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push('/downloads' as any)}
+            style={styles.tabBtn}
+          >
+            <Text style={[styles.tabText, { color: c.textSecondary }]}>
+              Downloads ({downloadsCount})
             </Text>
           </TouchableOpacity>
           {filteredChannels.length > 0 ? (

@@ -33,22 +33,25 @@ import {
 import { openVodItem } from '@/lib/util';
 import { useLocalStore, useLocalStoreHydrated, watchlistItemToVod } from '@/lib/store';
 import { useTheme } from '@/theme';
+import { useDownloadsStore } from '@/lib/downloads';
 
 const HEADER_LOGO_DARK = require('../../assets/images/biralotv-horizontal.png');
 const HEADER_LOGO_LIGHT = require('../../assets/images/biralotv-horizontal-light.png');
 
-type FilterKey = 'all' | 'movies' | 'series' | 'favorites';
+type FilterKey = 'all' | 'movies' | 'series' | 'favorites' | 'downloads';
 
 const FILTER_TABS: { key: FilterKey; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'movies', label: 'Movies' },
   { key: 'series', label: 'TV Shows' },
   { key: 'favorites', label: 'My List' },
+  { key: 'downloads', label: 'Downloads' },
 ];
 
 function Home() {
   const { colors, dark } = useTheme();
   const hasServer = useMsConfigured();
+  const downloadsCount = useDownloadsStore(s => s.items.length);
 
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
 
@@ -243,6 +246,17 @@ function Home() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.iconBtn, { backgroundColor: colors.elevated }]}
+            onPress={() => router.push('/downloads' as any)}
+            hitSlop={8}
+            accessibilityLabel="Downloads"
+          >
+            <Text style={[styles.iconText, { color: colors.text }]}>⬇</Text>
+            {downloadsCount > 0 ? (
+              <View style={[styles.badgeDot, { backgroundColor: colors.accent }]} />
+            ) : null}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: colors.elevated }]}
             onPress={() => router.push('/settings')}
             hitSlop={8}
             accessibilityLabel="Settings"
@@ -273,6 +287,8 @@ function Home() {
               onPress={() => {
                 if (tab.key === 'favorites') {
                   router.push('/favorites');
+                } else if (tab.key === 'downloads') {
+                  router.push('/downloads' as any);
                 } else {
                   setActiveFilter(tab.key);
                 }
@@ -639,6 +655,14 @@ const styles = StyleSheet.create({
   },
   iconText: {
     fontSize: 16,
+  },
+  badgeDot: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
   },
   filterScroll: {
     marginTop: 10,

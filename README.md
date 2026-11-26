@@ -57,6 +57,7 @@ BiraloTV provides instant access to a vast, constantly updated entertainment uni
 | Feature | Description |
 | :--- | :--- |
 | **Netflix-Style Hero** | Dynamic cinematic hero banner with backdrop trailers, plot previews, ratings, and instant playback. |
+| **Offline Downloads** | Download movies and TV show episodes directly to your Android device or Windows PC to watch offline anytime with zero data usage or buffering. Complete with real-time progress, pause/resume, and storage management. |
 | **Persistent Resume Playback** | Remembers your exact watch position down to the second. Automatically resumes where you left off, even across app exits and device reboots. |
 | **Local Watchlist & Favorites** | Save movies and series to your personal library with a single tap. All data is saved locally on your device—no sign-in required. |
 | **Multi-Server Streaming** | Multi-source stream engine with automatic fallback. If one server is slow or down, effortlessly switch to alternate mirrors in one tap. |
@@ -155,6 +156,7 @@ biralotv/
 │   │   ├── player.tsx      # Fullscreen media player & subtitle controller
 │   │   ├── on-demand.tsx   # "See All" catalog browser & genre filters
 │   │   ├── favorites.tsx   # Watchlist & Continue Watching manager
+│   │   ├── downloads.tsx   # Offline downloads manager & playback
 │   │   └── settings.tsx    # App preferences, server endpoints & subtitles
 │   ├── components/         # Reusable UI components
 │   │   ├── netflix-hero.tsx            # Cinematic hero carousel
@@ -164,6 +166,7 @@ biralotv/
 │   │   └── stream-player.web.tsx       # Desktop/Web HTML5 & HLS player
 │   └── lib/                # Core utilities, state & APIs
 │       ├── store.ts        # Zustand store (Favorites & Continue Watching)
+│       ├── downloads.ts    # Cross-platform download engine & offline manager
 │       ├── tmdb.ts         # The Movie Database API integration
 │       ├── subtitles.ts    # Multi-language subtitle parser & search
 │       └── scraper.ts      # Multi-server stream resolvers

@@ -24,6 +24,7 @@ import {
 } from '@/lib/tmdb';
 import { useTheme } from '@/theme';
 import { useLocalStore } from '@/lib/store';
+import { playDownloadedItem, useDownloadsStore } from '@/lib/downloads';
 import { goBack, openPlayer } from '@/lib/util';
 
 export default function VodDetail() {
@@ -42,6 +43,7 @@ export default function VodDetail() {
   const [episodes, setEpisodes] = useState<TmdbEpisodeSummary[]>([]);
   const [scraperReady, setScraperReady] = useState<boolean | null>(null);
   const [resolving, setResolving] = useState(false);
+  const [downloadLoading, setDownloadLoading] = useState(false);
   const [streamError, setStreamError] = useState('');
   const [needsScraperSetup, setNeedsScraperSetup] = useState(false);
 
@@ -50,6 +52,7 @@ export default function VodDetail() {
   const savedProgress = useLocalStore(s =>
     s.continueWatching.find(c => c.id === currentMediaId || (c.tmdbId === id && c.kind === kind)),
   );
+  const currentDownload = useDownloadsStore(s => s.items.find(i => i.id === currentMediaId));
   const toggleList = () => {
     if (data?.item) useLocalStore.getState().toggleWatchlist(data.item);
   };
@@ -177,6 +180,53 @@ export default function VodDetail() {
       setStreamError(e instanceof Error ? e.message : 'Could not resolve a stream.');
     } finally {
       setResolving(false);
+    }
+  }
+
+  async function downloadNow(targetSeason?: number, targetEpisode?: number) {
+    if (!id || downloadLoading) return;
+    const sNum = targetSeason ?? season;
+    const epNum = targetEpisode ?? episode;
+    const targetMediaId = kind === 'tv' ? `scraper:tv:${id}:${sNum}:${epNum}` : `scraper:movie:${id}`;
+
+    const existing = useDownloadsStore.getState().getItem(targetMediaId);
+    if (existing?.status === 'completed') {
+      playDownloadedItem(existing);
+      return;
+    }
+
+    setDownloadLoading(true);
+    setStreamError('');
+    try {
+      const res =
+        kind === 'tv'
+          ? await resolveEpisodeStream(id, sNum, epNum, serverChoice)
+          : await resolveMovieStream(id, serverChoice);
+
+      const chosen = pickPlayableStream(res)?.url;
+      if (!chosen) {
+        setStreamError('No downloadable stream was found.');
+        return;
+      }
+
+      const subUrl = res.subtitles?.[0]?.url;
+      await useDownloadsStore.getState().addDownload({
+        id: targetMediaId,
+        title: kind === 'tv' ? `${title} · S${sNum} E${epNum}` : title,
+        kind,
+        tmdbId: id,
+        season: kind === 'tv' ? sNum : undefined,
+        episode: kind === 'tv' ? epNum : undefined,
+        poster: data?.item.poster,
+        backdrop: data?.backdrop || data?.item.poster,
+        streamUrl: chosen,
+        quality: res.streams?.[0]?.quality || 'HD',
+        subtitlesUrl: subUrl,
+      });
+    } catch (e: unknown) {
+      setStreamError(e instanceof Error ? e.message : 'Failed to start download.');
+    } finally {
+      setDownloadLoading(false);
     }
   }
 
@@ -380,7 +430,7 @@ export default function VodDetail() {
                   disabled={resolving}
                   style={({ pressed }) => [
                     styles.watchBtn,
-                    { backgroundColor: pressed || resolving ? c.elevated : c.accent, flex: 1 },
+                    { backgroundColor: pressed || resolving ? c.elevated : c.accent, flex: 1.2 },
                   ]}
                 >
                   {resolving ? <ActivityIndicator size="small" color="#fff" /> : null}
@@ -393,6 +443,49 @@ export default function VodDetail() {
                           ? `▶ Watch S${season} E${episode}`
                           : '▶ Watch movie'}
                   </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => void downloadNow()}
+                  disabled={downloadLoading}
+                  style={({ pressed }) => [
+                    styles.downloadBtn,
+                    {
+                      backgroundColor:
+                        currentDownload?.status === 'completed'
+                          ? c.elevated
+                          : pressed
+                            ? c.pressed
+                            : c.elevated,
+                      borderColor:
+                        currentDownload?.status === 'completed' ? c.accent : 'rgba(255,255,255,0.12)',
+                      borderWidth: 1,
+                    },
+                  ]}
+                >
+                  {downloadLoading ? (
+                    <ActivityIndicator size="small" color={c.accent} />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.downloadBtnText,
+                        {
+                          color:
+                            currentDownload?.status === 'completed'
+                              ? c.accent
+                              : currentDownload?.status === 'downloading'
+                                ? '#ff9f0a'
+                                : c.text,
+                        },
+                      ]}
+                    >
+                      {currentDownload?.status === 'completed'
+                        ? '✓ Offline'
+                        : currentDownload?.status === 'downloading'
+                          ? `⏳ ${Math.round((currentDownload.progress || 0) * 100)}%`
+                          : '⬇ Download'}
+                    </Text>
+                  )}
                 </Pressable>
 
                 <Pressable
@@ -649,6 +742,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  downloadBtn: {
+    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  downloadBtnText: {
+    fontWeight: '800',
+    fontSize: 13,
   },
   listBtn: {
     borderRadius: 999,

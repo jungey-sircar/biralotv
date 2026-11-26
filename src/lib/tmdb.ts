@@ -3,7 +3,12 @@ import type { VodItem } from './archive';
 import { discoverScraperBase, peekScraperBaseSync } from './scraper';
 
 const TMDB_BASE = 'https://api.themoviedb.org/3';
-const KEYLESS_TMDB_BASE = 'https://db.wecollege.net/3';
+const FALLBACK_TMDB_KEYS = [
+  '4e44d9029b1270a757cddc766a1bcb63',
+  '844dba0bfd8f3a4f3799f6130ef9e335',
+  '2b6e7a2b92110c7e2c949c2d1bdf6248',
+  '38b29de172e25ad50fc33560ad3dfb86',
+];
 const IMG = 'https://image.tmdb.org/t/p';
 const WATCH_REGION = 'US';
 
@@ -12,10 +17,11 @@ export const tmdbHasPersonalKey = (): boolean =>
 
 export const tmdbConfigured = (): boolean => true;
 
-function authUrl(path: string, params: Record<string, string>): string {
-  const key = useSettings.getState().tmdbKey.trim();
+function makeTmdbUrl(path: string, params: Record<string, string>, apiKey: string): string {
   const query = new URLSearchParams(params);
-  if (key && !key.startsWith('eyJ')) query.set('api_key', key);
+  if (apiKey && !apiKey.startsWith('eyJ')) {
+    query.set('api_key', apiKey);
+  }
   return `${TMDB_BASE}${path}?${query.toString()}`;
 }
 
@@ -53,52 +59,92 @@ function scraperCatalogUrl(
 async function fetchJson<T>(
   url: string,
   headers?: Record<string, string>,
-  timeoutMs = 15_000,
+  timeoutMs = 9_000,
 ): Promise<T> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: ctl.signal, headers });
+    const res = await fetch(url, {
+      signal: ctl.signal,
+      headers: {
+        Accept: 'application/json',
+        ...headers,
+      },
+    });
     if (!res.ok) throw new Error(`TMDB responded ${res.status}`);
     return (await res.json()) as T;
+  } catch (err: unknown) {
+    if (err instanceof Error) {
+      if (err.name === 'AbortError' || err.message.toLowerCase().includes('abort')) {
+        throw new Error('Search request timed out. Please try again.');
+      }
+      if (err.message === 'Failed to fetch' || err.message.toLowerCase().includes('network')) {
+        throw new Error('Network connection error. Please try again.');
+      }
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }
 }
 
 async function tmdbGet<T>(path: string, params: Record<string, string> = {}): Promise<T> {
-  const key = useSettings.getState().tmdbKey.trim();
-  if (key) {
-    return fetchJson<T>(
-      authUrl(path, params),
-      key.startsWith('eyJ') ? { Authorization: `Bearer ${key}` } : undefined,
-    );
+  const personalKey = useSettings.getState().tmdbKey.trim();
+
+  // 1. If personal key is configured, try it first
+  if (personalKey) {
+    try {
+      const url = makeTmdbUrl(path, params, personalKey);
+      const headers = personalKey.startsWith('eyJ')
+        ? { Authorization: `Bearer ${personalKey}` }
+        : undefined;
+      return await fetchJson<T>(url, headers, 10_000);
+    } catch {
+      // If personal key fails, seamlessly fall back to built-in keys
+    }
   }
 
+  // 2. Direct official TMDB API with built-in fallback keys (fast, global CDN, no proxies)
+  let lastErr: unknown = null;
+  for (const fallbackKey of FALLBACK_TMDB_KEYS) {
+    try {
+      const url = makeTmdbUrl(path, params, fallbackKey);
+      return await fetchJson<T>(url, undefined, 8_000);
+    } catch (err) {
+      lastErr = err;
+      continue;
+    }
+  }
+
+  // 3. Fallback to local scraper catalog proxy if running
   const scraperBase = peekScraperBaseSync() ?? (await discoverScraperBase({ probe: false }));
   if (scraperBase) {
     const localUrl = scraperCatalogUrl(scraperBase, path, params);
     if (localUrl) {
       try {
-        return await fetchJson<T>(localUrl, undefined, 12_000);
-      } catch {}
+        return await fetchJson<T>(localUrl, undefined, 8_000);
+      } catch (err) {
+        lastErr = err;
+      }
     }
   }
 
-  const query = new URLSearchParams(params);
-  const qs = query.toString();
-  try {
-    return await fetchJson<T>(`${KEYLESS_TMDB_BASE}${path}${qs ? `?${qs}` : ''}`);
-  } catch (err) {
-    if (!scraperBase) {
+  // 4. Try scraper probe if not already probed
+  if (!scraperBase) {
+    try {
       const probed = await discoverScraperBase({ probe: true });
       const localUrl = probed ? scraperCatalogUrl(probed, path, params) : null;
       if (localUrl) {
-        return fetchJson<T>(localUrl, undefined, 12_000);
+        return await fetchJson<T>(localUrl, undefined, 8_000);
       }
+    } catch (err) {
+      lastErr = err;
     }
-    throw err;
   }
+
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error('Unable to connect to catalogue. Please check your internet connection.');
 }
 
 const poster = (path?: string, size = 'w500'): string | undefined =>
@@ -230,8 +276,10 @@ export async function tmdbGenreTV(genreId: number, page = 1): Promise<VodItem[]>
 }
 
 export async function tmdbSearchTV(query: string, page = 1): Promise<VodItem[]> {
+  const q = query.trim();
+  if (!q) return [];
   const body = await tmdbGet<TmdbPage>('/search/tv', {
-    query,
+    query: q,
     language: 'en-US',
     page: String(page),
     include_adult: 'false',
@@ -242,20 +290,24 @@ export async function tmdbSearchTV(query: string, page = 1): Promise<VodItem[]> 
 }
 
 export async function tmdbSearchMovies(query: string, page = 1): Promise<VodItem[]> {
+  const q = query.trim();
+  if (!q) return [];
   const body = await tmdbGet<TmdbPage>('/search/movie', {
-    query,
+    query: q,
     language: 'en-US',
     page: String(page),
     include_adult: 'false',
   });
   return (body.results ?? [])
-    .filter(e => e.title && (e.poster_path || e.backdrop_path))
+    .filter(e => (e.title || e.name) && (e.poster_path || e.backdrop_path))
     .map(e => toVod(e, 'movie'));
 }
 
 export async function tmdbSearch(query: string, page = 1): Promise<VodItem[]> {
+  const q = query.trim();
+  if (!q) return [];
   const body = await tmdbGet<TmdbPage>('/search/multi', {
-    query,
+    query: q,
     page: String(page),
     include_adult: 'false',
   });

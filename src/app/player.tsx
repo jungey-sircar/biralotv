@@ -20,6 +20,7 @@ import {
   useSubtitlePrefs,
 } from '@/lib/subtitles';
 import { useLocalStore } from '@/lib/store';
+import { useDownloadsStore } from '@/lib/downloads';
 import { goBack } from '@/lib/util';
 import { useTheme } from '@/theme';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -137,7 +138,15 @@ function PlayerSession({ params }: { params: PlayerParams }) {
   );
   const [error, setError] = useState('');
   const [playbackError, setPlaybackError] = useState('');
+  const [downloadToast, setDownloadToast] = useState(false);
   const resolveSeq = useRef(0);
+
+  const downloadTargetId = scraperTarget
+    ? scraperTarget.kind === 'tv'
+      ? `scraper:tv:${scraperTarget.tmdbId}:${scraperTarget.season}:${scraperTarget.episode}`
+      : `scraper:movie:${scraperTarget.tmdbId}`
+    : id;
+  const currentDownload = useDownloadsStore(s => s.items.find(i => i.id === downloadTargetId));
 
   const initialPos = useMemo(() => {
     if (params.resumePos) {
@@ -564,10 +573,67 @@ function PlayerSession({ params }: { params: PlayerParams }) {
                 </Text>
               </Pressable>
             ) : null}
+            {stream && !isEmbed ? (
+              <Pressable
+                onPress={() => {
+                  if (!stream) return;
+                  if (currentDownload?.status === 'completed') {
+                    setDownloadToast(true);
+                    setTimeout(() => setDownloadToast(false), 2500);
+                    return;
+                  }
+                  void useDownloadsStore.getState().addDownload({
+                    id: downloadTargetId,
+                    title: channel.name,
+                    kind: scraperTarget?.kind ?? 'movie',
+                    tmdbId: scraperTarget?.tmdbId,
+                    season: scraperTarget && scraperTarget.kind === 'tv' ? scraperTarget.season : undefined,
+                    episode: scraperTarget && scraperTarget.kind === 'tv' ? scraperTarget.episode : undefined,
+                    poster: channel.logo,
+                    streamUrl: stream,
+                    quality: 'HD',
+                  });
+                  setDownloadToast(true);
+                  setTimeout(() => setDownloadToast(false), 2500);
+                }}
+                hitSlop={8}
+                style={({ pressed }) => [
+                  styles.downloadTopBtn,
+                  {
+                    backgroundColor:
+                      currentDownload?.status === 'completed'
+                        ? c.accent
+                        : currentDownload?.status === 'downloading'
+                          ? '#ff9f0a'
+                          : pressed
+                            ? c.pressed
+                            : 'rgba(255,255,255,0.16)',
+                  },
+                ]}
+              >
+                <Text style={styles.downloadTopBtnText}>
+                  {currentDownload?.status === 'completed'
+                    ? '✓'
+                    : currentDownload?.status === 'downloading'
+                      ? '⏳'
+                      : '⬇'}
+                </Text>
+              </Pressable>
+            ) : null}
             <Pressable onPress={toggleFav} hitSlop={12}>
               <Text style={[styles.topBarFav, { color: fav ? c.accent : '#fff' }]}>{fav ? '♥' : '♡'}</Text>
             </Pressable>
           </View>
+
+          {downloadToast ? (
+            <View style={[styles.toastBox, { backgroundColor: c.accent }]}>
+              <Text style={styles.toastText}>
+                {currentDownload?.status === 'completed'
+                  ? '✓ Saved for offline watching'
+                  : '⬇ Added to Downloads! Check the Downloads tab.'}
+              </Text>
+            </View>
+          ) : null}
 
           {scraperTarget && (variants.length > 0 || activeServer) ? (
             <ScrollView
@@ -902,6 +968,29 @@ const styles = StyleSheet.create({
   },
   topBarFav: {
     fontSize: 20,
+  },
+  downloadTopBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  downloadTopBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  toastBox: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  toastText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   topBarTitle: {
     color: '#fff',

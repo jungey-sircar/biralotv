@@ -126,6 +126,7 @@ export default function OnDemand() {
   const [error, setError] = useState('');
   const page = useRef(1);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reqIdRef = useRef(0);
   const PAGE_SIZE = 20;
 
   const tab = useMemo(() => tabs.find(t => t.key === scopeKey) ?? tabs[0], [tabs, scopeKey]);
@@ -193,20 +194,32 @@ export default function OnDemand() {
 
   const load = useCallback(
     async (replace: boolean) => {
+      const myReqId = ++reqIdRef.current;
       if (replace) setLoading(true);
       else setLoadingMore(true);
       setError('');
       try {
         if (replace) page.current = 1;
         const batch = await fetchPage(tab, q);
+        if (myReqId !== reqIdRef.current) return;
         setItems(prev => (replace ? batch : merge(prev, batch)));
         if (batch.length < Math.min(PAGE_SIZE, 16)) page.current = -1;
         else page.current += 1;
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'could not load titles');
+        if (myReqId !== reqIdRef.current) return;
+        const msg = e instanceof Error ? e.message : 'could not load titles';
+        if (
+          msg.toLowerCase().includes('abort') ||
+          (e instanceof Error && e.name === 'AbortError')
+        ) {
+          return;
+        }
+        setError(msg);
       } finally {
-        setLoading(false);
-        setLoadingMore(false);
+        if (myReqId === reqIdRef.current) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       }
     },
     [fetchPage, tab, q],
@@ -327,9 +340,13 @@ export default function OnDemand() {
           ) : null}
           {items.length === 0 && !error ? (
             <View style={styles.center}>
-              <Text style={[styles.emptyTitle, { color: c.text }]}>Nothing found</Text>
+              <Text style={[styles.emptyTitle, { color: c.text }]}>
+                {q.trim() ? `No results for "${q}"` : 'Nothing found'}
+              </Text>
               <Text style={[styles.emptyDesc, { color: c.textMuted }]}>
-                Try another shelf or a different title.
+                {q.trim()
+                  ? 'Try checking spelling or switch to TV Shows, Movies, or Pluto TV.'
+                  : 'Try another shelf or a different title.'}
               </Text>
             </View>
           ) : (

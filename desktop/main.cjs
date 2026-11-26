@@ -1,10 +1,15 @@
 const { app, BrowserWindow, Menu, shell, session } = require('electron');
 const { spawn } = require('node:child_process');
+const dns = require('node:dns');
 const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 const { startServer } = require('./server.cjs');
+
+if (typeof dns.setDefaultResultOrder === 'function') {
+  dns.setDefaultResultOrder('ipv4first');
+}
 
 const WEB_ROOT = app.isPackaged
   ? path.join(process.resourcesPath, 'desktop-web')
@@ -231,6 +236,16 @@ if (!app.requestSingleInstanceLock()) {
           callback({ requestHeaders: details.requestHeaders });
         }
       );
+      session.defaultSession.on('will-download', (event, item) => {
+        console.log(`[desktop download] starting: ${item.getFilename()} (${item.getTotalBytes()} bytes)`);
+        item.once('done', (evt, state) => {
+          if (state === 'completed') {
+            console.log(`[desktop download] finished: ${item.getSavePath()}`);
+          } else {
+            console.warn(`[desktop download] failed/cancelled: ${state}`);
+          }
+        });
+      });
       return createWindow();
     })
     .catch(err => {
